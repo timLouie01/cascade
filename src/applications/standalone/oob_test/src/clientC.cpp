@@ -1,6 +1,5 @@
-#include <cascade/object.hpp>
-#include <derecho/conf/conf.hpp>
-
+#include <cascade/service_client_api.hpp>
+#include <cascade/service_types.hpp>
 using namespace derecho::cascade;       
 				
 int main(int argc, char** argv) {
@@ -19,11 +18,11 @@ int main(int argc, char** argv) {
   	
     const char* arg = argv[1];
     uint64_t data_addr = std::strtoull(arg, nullptr, 10);
-     for(const auto& member: group.get_members()){
-	 if (member == group.get_my_id()) {
+     for(const auto& member: capi.get_members()){
+	 if (member == capi.get_my_id()) {
 		 continue;
 	     	}
-	capi.oob_get_remote(member,0,data_addr,reinterpret_cast<uint64_t>(oob_mr_ptr), rkey,oob_data_size)
+	capi.oob_get_remote<VolatileCascadeStoreWithStringKey>(member,0,data_addr,reinterpret_cast<uint64_t>(oob_mr_ptr), rkey,oob_data_size)
      }
      uint8_t* byte_ptr = reinterpret_cast<uint8_t*>(oob_mr_ptr);
      std::cout << "Recieved: " << static_cast<char>(byte_ptr[1]) << std::endl;

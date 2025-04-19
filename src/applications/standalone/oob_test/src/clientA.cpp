@@ -5,6 +5,7 @@ using namespace derecho::cascade;
 int main(int argc, char** argv) {
     std::cout << "Cascade OOB TEST A Node" << std::endl;
     auto& capi(ServiceClientAPI::get_service_client());
+    capi.create_object_pool<VolatileCascadeStoreWithStringKey>("/volatile", 0, sharding_policy_type::HASH, {}, "");
     void* oob_mr_ptr = nullptr; 
     size_t      oob_mr_size     = 1ul << 20;
     size_t      oob_data_size =256;

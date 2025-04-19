@@ -17,14 +17,14 @@ int main(int argc, char** argv) {
     derecho::memory_attribute_t attr;
     attr.type = derecho::memory_attribute_t::SYSTEM;
 
-    capi.oob_register_mem_ex<VolatileCascadeStoreWithStringKey>(oob_mr_ptr,oob_mr_size,attr);
+    capi.oob_register_mem_ex(oob_mr_ptr,oob_mr_size,attr);
     
     std::cout << "a written at" << reinterpret_cast<uint64_t>(get_buffer_laddr) << std::endl;
     std::cout << "Press ENTER to exit and trigger cleanup...\n";
 
      // Wait for user to hit ENTER
       std::cin.get(); // waits for input
-    capi.oob_deregister_mem<VolatileCascadeStoreWithStringKey>(oob_mr_ptr);
+    capi.oob_deregister_mem(oob_mr_ptr);
 }
 
 

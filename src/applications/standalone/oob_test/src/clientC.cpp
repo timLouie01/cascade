@@ -30,7 +30,7 @@ int main(int argc, char** argv) {
 
      // Wait for user to hit ENTER
     std::cin.get(); // waits for input
-    capi.oob_deregister_mem(oob_mr_ptr);
+    capi.oob_deregister_mem<VolatileCascadeStoreWithStringKey>(oob_mr_ptr);
 }
 
 

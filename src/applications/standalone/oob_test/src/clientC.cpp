@@ -13,8 +13,8 @@ int main(int argc, char** argv) {
     derecho::memory_attribute_t attr;
     attr.type = derecho::memory_attribute_t::SYSTEM;
 
-    capi.oob_register_mem_ex(oob_mr_ptr,oob_mr_size,attr);
-    auto rkey = capi.oob_rkey(oob_mr_ptr);
+    capi.oob_register_mem_ex<VolatileCascadeStoreWithStringKey>(oob_mr_ptr,oob_mr_size,attr);
+    auto rkey = capi.oob_rkey<VolatileCascadeStoreWithStringKey>(oob_mr_ptr);
   	
     const char* arg = argv[1];
     uint64_t data_addr = std::strtoull(arg, nullptr, 10);

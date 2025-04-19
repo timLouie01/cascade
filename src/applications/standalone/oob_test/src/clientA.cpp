@@ -1,6 +1,5 @@
-#include <cascade/object.hpp>
 #include <derecho/conf/conf.hpp>
-
+#include <cascade/include/cascade/service_client_api.hpp>
 using namespace derecho::cascade;       
 				
 int main(int argc, char** argv) {

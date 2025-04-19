@@ -22,7 +22,7 @@ int main(int argc, char** argv) {
 	 if (member == capi.get_my_id()) {
 		 continue;
 	     	}
-	capi.oob_get_remote<VolatileCascadeStoreWithStringKey>(member,0,data_addr,reinterpret_cast<uint64_t>(oob_mr_ptr), rkey,oob_data_size)
+	capi.oob_get_remote<VolatileCascadeStoreWithStringKey>(member,0,data_addr,reinterpret_cast<uint64_t>(oob_mr_ptr), rkey,oob_data_size);
      }
      uint8_t* byte_ptr = reinterpret_cast<uint8_t*>(oob_mr_ptr);
      std::cout << "Recieved: " << static_cast<char>(byte_ptr[1]) << std::endl;

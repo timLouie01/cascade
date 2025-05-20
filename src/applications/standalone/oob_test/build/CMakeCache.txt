@@ -122,7 +122,7 @@ CMAKE_PROJECT_DESCRIPTION:STATIC=
 CMAKE_PROJECT_HOMEPAGE_URL:STATIC=
 
 //Value Computed by CMake
-CMAKE_PROJECT_NAME:STATIC=cascade_dds
+CMAKE_PROJECT_NAME:STATIC=cascade_oob_test
 
 //Path to a program.
 CMAKE_RANLIB:FILEPATH=/usr/bin/ranlib
@@ -193,13 +193,13 @@ CMAKE_VERBOSE_MAKEFILE:BOOL=FALSE
 cascade_DIR:PATH=cascade_DIR-NOTFOUND
 
 //Value Computed by CMake
-cascade_dds_BINARY_DIR:STATIC=/home/tjl96/workspace/cascade/src/applications/standalone/oob_test/build
+cascade_oob_test_BINARY_DIR:STATIC=/home/tjl96/workspace/cascade/src/applications/standalone/oob_test/build
 
 //Value Computed by CMake
-cascade_dds_IS_TOP_LEVEL:STATIC=ON
+cascade_oob_test_IS_TOP_LEVEL:STATIC=ON
 
 //Value Computed by CMake
-cascade_dds_SOURCE_DIR:STATIC=/home/tjl96/workspace/cascade/src/applications/standalone/oob_test
+cascade_oob_test_SOURCE_DIR:STATIC=/home/tjl96/workspace/cascade/src/applications/standalone/oob_test
 
 
 ########################

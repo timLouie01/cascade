@@ -1,0 +1,20 @@
+[
+{
+  "directory": "/home/tjl96/workspace/cascade/src/applications/standalone/dds/build",
+  "command": "/usr/bin/c++ -DRPCLIB_LINUX -DRPCLIB_MSGPACK=clmdep_msgpack -DSPDLOG_COMPILED_LIB -Dcascade_dds_EXPORTS -I/home/tjl96/workspace/cascade/src/applications/standalone/dds/build/include -I/home/tjl96/workspace/cascade/src/applications/standalone/dds/include -std=gnu++17 -fPIC -o CMakeFiles/cascade_dds.dir/src/dds.cpp.o -c /home/tjl96/workspace/cascade/src/applications/standalone/dds/src/dds.cpp",
+  "file": "/home/tjl96/workspace/cascade/src/applications/standalone/dds/src/dds.cpp",
+  "output": "CMakeFiles/cascade_dds.dir/src/dds.cpp.o"
+},
+{
+  "directory": "/home/tjl96/workspace/cascade/src/applications/standalone/dds/build",
+  "command": "/usr/bin/c++ -DRPCLIB_LINUX -DRPCLIB_MSGPACK=clmdep_msgpack -DSPDLOG_COMPILED_LIB -I/home/tjl96/workspace/cascade/src/applications/standalone/dds/build/include -I/home/tjl96/workspace/cascade/src/applications/standalone/dds/include -std=gnu++17 -fPIE -o CMakeFiles/cascade_dds_client.dir/src/client.cpp.o -c /home/tjl96/workspace/cascade/src/applications/standalone/dds/src/client.cpp",
+  "file": "/home/tjl96/workspace/cascade/src/applications/standalone/dds/src/client.cpp",
+  "output": "CMakeFiles/cascade_dds_client.dir/src/client.cpp.o"
+},
+{
+  "directory": "/home/tjl96/workspace/cascade/src/applications/standalone/dds/build",
+  "command": "/usr/bin/c++ -DRPCLIB_LINUX -DRPCLIB_MSGPACK=clmdep_msgpack -DSPDLOG_COMPILED_LIB -Dcascade_dds_udl_EXPORTS -I/home/tjl96/workspace/cascade/src/applications/standalone/dds/build/include -I/home/tjl96/workspace/cascade/src/applications/standalone/dds/include -I/home/tjl96/workspace/cascade/src/applications/standalone/dds -I/home/tjl96/workspace/cascade/src/applications/standalone/dds/build -std=gnu++17 -fPIC -o CMakeFiles/cascade_dds_udl.dir/src/dds_udl.cpp.o -c /home/tjl96/workspace/cascade/src/applications/standalone/dds/src/dds_udl.cpp",
+  "file": "/home/tjl96/workspace/cascade/src/applications/standalone/dds/src/dds_udl.cpp",
+  "output": "CMakeFiles/cascade_dds_udl.dir/src/dds_udl.cpp.o"
+}
+]

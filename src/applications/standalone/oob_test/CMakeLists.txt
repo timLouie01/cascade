@@ -6,17 +6,37 @@ project(cascade_oob_test CXX)
 set(CMAKE_CXX_STANDARD 17)
 find_package(cascade CONFIG REQUIRED)
 
+include(CheckLanguage)
+check_language(CUDA)
+
+if (CMAKE_CUDA_COMPILER)
+    enable_language(CUDA)
+    find_package(CUDAToolkit)
+    set (CUDA_FOUND 1)
+
+    if (NOT DEFINED CMAKE_CUDA_STANDARD)
+        set(CMAKE_CUDA_STANDARD 17)
+        set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+    endif()
+
+    if (NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+        execute_process(COMMAND bash -c "nvidia-smi --query-gpu=compute_cap --format=csv,noheader,nounits | sed 's/\\.//' | head -1"
+                        OUTPUT_VARIABLE NATIVE_CUDA_ARCH)
+        string(STRIP ${NATIVE_CUDA_ARCH} NATIVE_CUDA_ARCH)
+        set(CMAKE_CUDA_ARCHITECTURES ${NATIVE_CUDA_ARCH})
+        message("NATIVE_CUDA_ARCH=${NATIVE_CUDA_ARCH}")
+    endif()
+endif()
+
+
 add_library(oob_udl SHARED src/oob_udl.cpp)
 target_include_directories(oob_udl PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
   )
 
-add_executable(cascade_oob_client_C src/clientC.cpp)
-target_link_libraries(cascade_oob_client_C derecho::cascade)
-
-
-add_executable(cascade_oob_client_A src/clientA.cpp)
-target_link_libraries(cascade_oob_client_A derecho::cascade)
+if (CUDA_FOUND)
+target_link_libraries(oob_udl CUDA::cuda_driver)
+endif()
 
 add_custom_command(TARGET oob_udl POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/cfg

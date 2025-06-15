@@ -6,7 +6,27 @@ namespace cascade{
 
 #define MY_UUID     "48e60f7c-8500-11eb-8755-0242ac110002"
 #define MY_DESC     "Demo DLL UDL that allocates CPU memory and performs Single Sided RDMA"
+#ifdef CUDA_FOUND
+	#include <cuda.h>
 
+	#define ASSERTDRV(stmt)
+	    do {
+		            CUresult result = (stmt); 
+		            if (result != CUDA_SUCCESS) { 
+				                const char* _err_name; 
+				                cuGetErrorName(result, &_err_name); 
+				                std::cerr << "CUDA Driver API error:" << _err_name << std::endl; 
+				            }
+		            assert (CUDA_SUCCESS == result);
+		        } while (false)
+
+	__attribute__ ((visibility ("hidden")))
+		struct global_ctxt {
+			    CUdevice    device;
+			        CUcontext   context;
+				    CUdeviceptr dev_ptr;
+		} cuda_ctxt;
+#endif
 std::string get_uuid() {
     return MY_UUID;
 }
@@ -15,6 +35,20 @@ std::string get_description() {
     return MY_DESC;
 }
 
+void dump_device_bytes(const void* gpu_addr, std::size_t num_bytes)
+{
+	  	        std::vector<std::uint8_t> host(num_bytes); 
+	       	                ASSERTDRV(cuMemcpyDtoH(host.data(),
+	                                        reinterpret_cast<CUdeviceptr>(gpu_addr),
+	                                                                       num_bytes));
+	                                                                         std::ios old_state(nullptr);
+	                                                                                   old_state.copyfmt(std::cout);                    	                                                                              std::cout << "GPU bytes @ " << gpu_addr << " :";
+	                                                                                           for (std::size_t i = 0; i < num_bytes; ++i) {
+	                                                                                                          std::cout << static_cast<char>(host[i]);
+
+	      }
+}									   
+										
 class OOBOCDPO: public OffCriticalDataPathObserver {
    
 	void* oob_mr_ptr = nullptr; 
@@ -33,22 +67,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
                   << ", matching prefix=" << key_string.substr(0,prefix_length) << std::endl;
        auto tokens = str_tokenizer(key_string);
        if (tokens[1] == "send"){
-/**
-       	       cudaSetDevice(device_id);
-	
-	size_in_bytes = (std::stoul("8") << 20);	
-      	void* dev_ptr = nullptr;
-         cudaError_t err = cudaMalloc(&dev_ptr, size_in_bytes);
-   	 if (err != cudaSuccess) {
-        	std::cerr << "cudaMalloc failed: " << cudaGetErrorString(err) << std::endl;
-   	 }
-         err = cudaMemset(dev_ptr, value, size_in_bytes);
-         if (err != cudaSuccess) {
-                std::cerr << "cudaMemset failed: " << cudaGetErrorString(err) << std::endl;
-                cudaFree(dev_ptr); // Clean up
-         }
-*/
-//	       void* oob_mr_ptr = nullptr; 
+ 
 	       size_t      oob_mr_size     = 1ul << 20;
 		size_t      oob_data_size =256;
 		      this->oob_mr_ptr = aligned_alloc(4096,oob_mr_size);
@@ -65,6 +84,43 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
       					typed_ctxt->get_service_client_ref().put_and_forget<VolatileCascadeStoreWithStringKey>(obj,0,1); 
        				         std::cout << "SEND put worked!" << std::endl; 				
        }
+       else if(tokens[1] == "send_GPU"){
+
+	        size_t      oob_mr_size     = 1ul << 20;
+		size_t      oob_data_size =256;
+
+	 ASSERTDRV(cuInit(0));
+	         int n_devices = 0;
+		         ASSERTDRV(cuDeviceGetCount(&n_devices));
+			         if (!(n_devices > cuda_device)) {
+				             std::cerr << "Unknown CUDA device:" << cuda_device << ". We found only " << n_devices << std::endl;
+					                 return -1;
+							         }
+	         // initialize cuda_ctxt;
+		 ASSERTDRV(cuDeviceGet(&cuda_ctxt.device, cuda_device));
+                 ASSERTDRV(cuDevicePrimaryCtxRetain(&cuda_ctxt.context, cuda_ctxt.device));
+                 ASSERTDRV(cuCtxSetCurrent(cuda_ctxt.context));
+
+	char putbuf[oob_data_size];
+	        
+        memset(putbuf,'A',oob_data_size);				
+	ASSERTDRV(cuMemAlloc(reinterpret_cast<CUdeviceptr*>(&(this->oob_mr_ptr) ,oob_mr_size));
+
+	ASSERTDRV(cuMemcpyHtoD(reinterpret_cast<CUdeviceptr>(&(this->oob_mr_ptr),  reinterpret_cast<const void*>(putbuf),						                    oob_data_size));				       			
+       	std::cout << "contents of the send buffer" << std::endl;
+	std::cout << "==========================" << std::endl;	
+  	print_data(putbuf,oob_data_size);
+
+	attr.type = derecho::memory_attribute_t::CUDA;
+	        attr.device.cuda = cuda_ctxt.device;
+	 typed_ctxt->get_service_client_ref().oob_register_mem_ex(this->oob_mr_ptr,oob_mr_size,attr);
+					  uint64_t ptr = reinterpret_cast<uint64_t>(this->oob_mr_ptr);
+ Blob blob(reinterpret_cast<const uint8_t*>(&ptr), oob_data_size); 
+					  ObjectWithStringKey obj ("oob/receive_GPU",blob);
+					  
+typed_ctxt->get_service_client_ref().put_and_forget<VolatileCascadeStoreWithStringKey>(obj,0,1); 
+       				       
+	}
        else if(tokens[1] == "receive"){
 		
 	    size_t      oob_mr_size     = 1ul << 20;
@@ -90,11 +146,43 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 			      	typed_ctxt->get_service_client_ref().oob_get_remote<VolatileCascadeStoreWithStringKey>(0,0,result,reinterpret_cast<uint64_t>(oob_mr_ptr), rkey,oob_data_size);
         std::cout << "RECEIVE UDL handeling has called oob_get_remote" << std::endl; 			
        }
+else if (tokens[1] == "receive_GPU"){
+	    size_t      oob_mr_size     = 1ul << 20;
+	        size_t      oob_data_size =256;
+
+
+	 ASSERTDRV(cuInit(0));
+	         int n_devices = 0;
+		         ASSERTDRV(cuDeviceGetCount(&n_devices));
+			         if (!(n_devices > cuda_device)) {
+				             std::cerr << "Unknown CUDA device:" << cuda_device << ". We found only " << n_devices << std::endl;
+					                 return -1;
+							         }
+	         // initialize cuda_ctxt;
+		 ASSERTDRV(cuDeviceGet(&cuda_ctxt.device, cuda_device));
+                 ASSERTDRV(cuDevicePrimaryCtxRetain(&cuda_ctxt.context, cuda_ctxt.device));
+                 ASSERTDRV(cuCtxSetCurrent(cuda_ctxt.context));        
+       	ASSERTDRV(cuMemAlloc(reinterpret_cast<CUdeviceptr*>(&(this->oob_mr_ptr) ,oob_mr_size));
+
+	attr.type = derecho::memory_attribute_t::CUDA;
+	attr.device.cuda = cuda_ctxt.device;
+	 typed_ctxt->get_service_client_ref().oob_register_mem_ex(this->oob_mr_ptr,oob_mr_size,attr);
+		
+	 auto rkey =  typed_ctxt->get_service_client_ref().oob_rkey(oob_mr_ptr);
+			
+	 const ObjectWithStringKey* object = dynamic_cast<const ObjectWithStringKey*>(value_ptr);
+	uint64_t result = *reinterpret_cast<const uint64_t*>(object->blob.bytes);	
+	void* ptr = reinterpret_cast<void*>(result);
+
+	typed_ctxt->get_service_client_ref().oob_get_remote<VolatileCascadeStoreWithStringKey>(0,0,result,reinterpret_cast<uint64_t>(oob_mr_ptr), rkey,oob_data_size);
+       
+	        std::cout << "RECEIVE UDL handeling has called oob_get_remote" << std::endl; 			
+	}
        else if (tokens[1] == "check"){
 	       std::cout << "CHECK" << std::endl;
 	uint8_t* byte_ptr = reinterpret_cast<uint8_t*>(this->oob_mr_ptr);
-	std::cout << "Recieved: " << static_cast<char>(byte_ptr[1]) << std::endl;
-       } else {
+	dump_device_bytes(byte_ptr,oob_data_size);	
+ 	} else {
 	std::cout << "Unsupported oob operation called!" << std::endl;
        }
     }

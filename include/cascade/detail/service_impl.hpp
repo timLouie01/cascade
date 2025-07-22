@@ -805,6 +805,32 @@ derecho::rpc::QueryResults<void> ServiceClient<CascadeTypes...>::type_recursive_
         throw derecho::derecho_exception(std::string(__PRETTY_FUNCTION__) + ": type index is out of boundary.");
     }
 }
+template <typename... CascadeTypes>
+template <typename SubgroupType>
+void ServiceClient<CascadeTypes...>::oob_memread(uint64_t remote_addr, const node_id_t remote_node, uint64_t r_key, size_t size, bool remote_gpu, uint64_t local_addr, bool local_gpu, bool sync){
+
+	struct iovec iov;
+	iov.iov_base    = reinterpret_cast<void*>(local_addr);                         iov.iov_len     = static_cast<size_t>(size);
+	auto& subgroup_handle = group_ptr->template get_subgroup<SubgroupType>();
+	subgroup_handle.oob_remote_read(remote_node, iov,1,remote_addr, r_key, size);
+	if (sync){
+	subgroup_handle.wait_for_oob_op(remote_node, 0, 1000);
+	}
+
+}
+
+template <typename... CascadeTypes>
+template <typename SubgroupType>
+void ServiceClient<CascadeTypes...>::oob_memwrite(uint64_t remote_addr, const node_id_t remote_node, uint64_t r_key, size_t size, bool remote_gpu, uint64_t local_addr, bool local_gpu, bool sync){
+
+	struct iovec iov;
+	iov.iov_base    = reinterpret_cast<void*>(local_addr);                         iov.iov_len     = static_cast<size_t>(size);
+	auto& subgroup_handle = group_ptr->template get_subgroup<SubgroupType>();
+	subgroup_handle.oob_remote_write(remote_node, iov,1,remote_addr, r_key, size);
+	if (sync){
+	subgroup_handle.wait_for_oob_op(remote_node, 1, 1000);
+	}
+}
 
 template <typename... CascadeTypes>
 template <typename ObjectType>

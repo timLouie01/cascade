@@ -869,6 +869,20 @@ namespace cascade {
                 uint32_t subgroup_index,
                 uint32_t shard_index);
     public:
+
+	/**
+	 *oob_memcpy methods
+	 */
+
+	template <typename SubgroupType>
+        void oob_memread(uint64_t remote_addr, const node_id_t remote_node, uint64_t r_key, size_t size, bool remote_gpu, uint64_t local_addr, bool local_gpu, bool sync = false);
+
+
+	template <typename SubgroupType>
+        void oob_memwrite(uint64_t remote_addr, const node_id_t remote_node, uint64_t r_key, size_t size, bool remote_gpu, uint64_t local_addr, bool local_gpu, bool sync = false);
+
+
+    public:
         /**
          * object pool version
          * @param[in] object    the object to write, the object pool is extracted from the object key.

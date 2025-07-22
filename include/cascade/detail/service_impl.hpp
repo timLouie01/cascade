@@ -832,6 +832,21 @@ void ServiceClient<CascadeTypes...>::oob_memwrite(uint64_t remote_addr, const no
 	}
 }
 
+
+template <typename... CascadeTypes>
+void ServiceClient<CascadeTypes...>::oob_register_mem_ex(void* addr, size_t size, const memory_attribute_t& attr) {
+		group_ptr->register_oob_memory_ex(addr, size, attr);
+}
+
+template <typename... CascadeTypes>
+void ServiceClient<CascadeTypes...>::oob_deregister_mem(void* addr) {
+		group_ptr->deregister_oob_memory(addr);
+}
+template <typename... CascadeTypes>
+uint64_t ServiceClient<CascadeTypes...>::oob_rkey(void* addr){
+		return	group_ptr->get_oob_memory_key(addr);
+}
+
 template <typename... CascadeTypes>
 template <typename ObjectType>
 derecho::rpc::QueryResults<void> ServiceClient<CascadeTypes...>::trigger_put(

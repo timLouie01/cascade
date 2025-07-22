@@ -881,6 +881,11 @@ namespace cascade {
 	template <typename SubgroupType>
         void oob_memwrite(uint64_t remote_addr, const node_id_t remote_node, uint64_t r_key, size_t size, bool remote_gpu, uint64_t local_addr, bool local_gpu, bool sync = false);
 
+	void oob_register_mem_ex(void* addr, size_t size, const memory_attribute_t& attr);
+	
+	void oob_deregister_mem(void* addr);
+       	
+	uint64_t oob_rkey(void* addr);	
 
     public:
         /**

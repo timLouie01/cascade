@@ -59,7 +59,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 					  uint64_t ptr = reinterpret_cast<uint64_t>(this->oob_mr_ptr);
 					 std::cout << typed_ctxt->get_service_client_ref().oob_rkey(this->oob_mr_ptr) << " RKEY FOR: " << ptr << std::endl;
 					  std::cout << "Int mem Original: " << ptr << std::endl;
-					  Blob blob(); 
+					  Blob blob; 
 					  ObjectWithStringKey obj ("oob/receive",blob);
 					  std::cout << "SEND" << std::endl;
       					typed_ctxt->get_service_client_ref().put_and_forget<VolatileCascadeStoreWithStringKey>(obj,0,1); 
@@ -87,9 +87,10 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 	const ObjectWithStringKey* object = dynamic_cast<const ObjectWithStringKey*>(value_ptr);
 	uint64_t rkey = object->get_timestamp();
 	uint64_t result = *reinterpret_cast<const uint64_t*>(object->blob.bytes);
-	
-	typed_ctxt->get_service_client_ref().oob_memwrite(result,sender, r_key,256,false,this->oob_mr_ptr,false, true)
-	 }{
+	uint64_t ptr = reinterpret_cast<uint64_t>(this->oob_mr_ptr);
+
+	typed_ctxt->get_service_client_ref().oob_memwrite<VolatileCascadeStoreWithStringKey>(result,sender, rkey,256,false,ptr,false, true);
+	 }
        else if (tokens[1] == "check"){
 	       std::cout << "CHECK" << std::endl;
 	uint8_t* byte_ptr = reinterpret_cast<uint8_t*>(this->oob_mr_ptr);

@@ -280,22 +280,6 @@ CMakeFiles/oob_udl.dir/src/oob_udl.cpp.o: \
  /usr/include/x86_64-linux-gnu/c++/11/bits/c++io.h \
  /usr/include/c++/11/bits/fstream.tcc \
  /home/tjl96/opt-dev/include/spdlog/fmt/bundled/format.h \
- /home/tjl96/opt-dev/include/spdlog/fmt/ranges.h \
- /home/tjl96/opt-dev/include/spdlog/fmt/bundled/ranges.h \
- /home/tjl96/opt-dev/include/spdlog/fmt/std.h \
- /home/tjl96/opt-dev/include/spdlog/fmt/bundled/std.h \
- /home/tjl96/opt-dev/include/spdlog/fmt/bundled/ostream.h \
- /usr/include/c++/11/version /usr/include/c++/11/filesystem \
- /usr/include/c++/11/bits/fs_fwd.h /usr/include/c++/11/bits/fs_path.h \
- /usr/include/c++/11/locale \
- /usr/include/c++/11/bits/locale_facets_nonio.h \
- /usr/include/x86_64-linux-gnu/c++/11/bits/time_members.h \
- /usr/include/x86_64-linux-gnu/c++/11/bits/messages_members.h \
- /usr/include/libintl.h /usr/include/c++/11/bits/locale_facets_nonio.tcc \
- /usr/include/c++/11/bits/locale_conv.h /usr/include/c++/11/iomanip \
- /usr/include/c++/11/bits/quoted_string.h /usr/include/c++/11/codecvt \
- /usr/include/c++/11/bits/fs_dir.h /usr/include/c++/11/bits/fs_ops.h \
- /usr/include/c++/11/variant \
  /home/tjl96/opt-dev/include/spdlog/sinks/rotating_file_sink.h \
  /home/tjl96/opt-dev/include/spdlog/sinks/base_sink.h \
  /home/tjl96/opt-dev/include/spdlog/sinks/sink.h \
@@ -410,6 +394,15 @@ CMakeFiles/oob_udl.dir/src/oob_udl.cpp.o: \
  /usr/include/x86_64-linux-gnu/bits/types/struct_statx_timestamp.h \
  /usr/include/x86_64-linux-gnu/bits/types/struct_statx.h \
  /home/tjl96/opt-dev/include/derecho/persistent/detail/logger.hpp \
+ /usr/include/c++/11/filesystem /usr/include/c++/11/bits/fs_fwd.h \
+ /usr/include/c++/11/bits/fs_path.h /usr/include/c++/11/locale \
+ /usr/include/c++/11/bits/locale_facets_nonio.h \
+ /usr/include/x86_64-linux-gnu/c++/11/bits/time_members.h \
+ /usr/include/x86_64-linux-gnu/c++/11/bits/messages_members.h \
+ /usr/include/libintl.h /usr/include/c++/11/bits/locale_facets_nonio.tcc \
+ /usr/include/c++/11/bits/locale_conv.h /usr/include/c++/11/iomanip \
+ /usr/include/c++/11/bits/quoted_string.h /usr/include/c++/11/codecvt \
+ /usr/include/c++/11/bits/fs_dir.h /usr/include/c++/11/bits/fs_ops.h \
  /home/tjl96/opt-dev/include/derecho/persistent/detail/PersistNoLog_impl.hpp \
  /home/tjl96/opt-dev/include/derecho/persistent/detail/FilePersistLog.hpp \
  /home/tjl96/opt-dev/include/derecho/persistent/detail/Persistent_impl.hpp \
@@ -427,6 +420,11 @@ CMakeFiles/oob_udl.dir/src/oob_udl.cpp.o: \
  /home/tjl96/opt-dev/include/derecho/core/detail/group_impl.hpp \
  /home/tjl96/opt-dev/include/derecho/utils/container_template_functions.hpp \
  /home/tjl96/opt-dev/include/derecho/core/detail/make_kind_map.hpp \
+ /home/tjl96/opt-dev/include/spdlog/async.h \
+ /home/tjl96/opt-dev/include/spdlog/async_logger.h \
+ /home/tjl96/opt-dev/include/spdlog/details/thread_pool.h \
+ /home/tjl96/opt-dev/include/spdlog/details/mpmc_blocking_q.h \
+ /home/tjl96/opt-dev/include/spdlog/details/os.h \
  /home/tjl96/opt-dev/include/derecho/core/external_group.hpp \
  /home/tjl96/opt-dev/include/derecho/core/detail/external_group_impl.hpp \
  /home/tjl96/opt-dev/include/derecho/core/detail/version_code.hpp \
@@ -452,6 +450,7 @@ CMakeFiles/oob_udl.dir/src/oob_udl.cpp.o: \
  /home/tjl96/opt-dev/include/nlohmann/detail/meta/detected.hpp \
  /home/tjl96/opt-dev/include/nlohmann/detail/meta/void_t.hpp \
  /home/tjl96/opt-dev/include/nlohmann/thirdparty/hedley/hedley.hpp \
+ /usr/include/c++/11/version \
  /home/tjl96/opt-dev/include/nlohmann/detail/string_escape.hpp \
  /home/tjl96/opt-dev/include/nlohmann/detail/input/position_t.hpp \
  /home/tjl96/opt-dev/include/nlohmann/detail/meta/cpp_future.hpp \
@@ -477,7 +476,6 @@ CMakeFiles/oob_udl.dir/src/oob_udl.cpp.o: \
  /home/tjl96/opt-dev/include/nlohmann/detail/iterators/primitive_iterator.hpp \
  /home/tjl96/opt-dev/include/nlohmann/detail/iterators/iter_impl.hpp \
  /home/tjl96/opt-dev/include/nlohmann/detail/iterators/json_reverse_iterator.hpp \
- /home/tjl96/opt-dev/include/nlohmann/detail/json_custom_base_class.hpp \
  /home/tjl96/opt-dev/include/nlohmann/detail/json_pointer.hpp \
  /home/tjl96/opt-dev/include/nlohmann/detail/json_ref.hpp \
  /home/tjl96/opt-dev/include/nlohmann/detail/output/binary_writer.hpp \
@@ -488,6 +486,7 @@ CMakeFiles/oob_udl.dir/src/oob_udl.cpp.o: \
  /usr/include/c++/11/any \
  /home/tjl96/opt-dev/include/nlohmann/detail/macro_unscope.hpp \
  /home/tjl96/opt-dev/include/nlohmann/thirdparty/hedley/hedley_undef.hpp \
+ /usr/include/c++/11/variant \
  /home/tjl96/opt-dev/include/derecho/core/bytes_object.hpp \
  /home/tjl96/opt-dev/include/cascade/volatile_store.hpp \
  /home/tjl96/opt-dev/include/cascade/detail/volatile_store_impl.hpp \

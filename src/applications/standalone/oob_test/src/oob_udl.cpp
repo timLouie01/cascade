@@ -57,13 +57,13 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 				           attr.type = derecho::memory_attribute_t::SYSTEM;
 					  typed_ctxt->get_service_client_ref().oob_register_mem_ex(this->oob_mr_ptr,oob_mr_size,attr);
 					  uint64_t ptr = reinterpret_cast<uint64_t>(this->oob_mr_ptr);
-					 std::cout << typed_ctxt->get_service_client_ref().oob_rkey(this->oob_mr_ptr) << " RKEY FOR: " << ptr << std::endl;
-					  std::cout << "Int mem Original: " << ptr << std::endl;
+					//  std::cout << typed_ctxt->get_service_client_ref().oob_rkey(this->oob_mr_ptr) << " RKEY FOR: " << ptr << std::endl;
+					 //  std::cout << "Int mem Original: " << ptr << std::endl;
 					  Blob blob; 
 					  ObjectWithStringKey obj ("oob/receive",blob);
-					  std::cout << "SEND" << std::endl;
+					  std::cout << "SEND RECEIVE" << std::endl;
       					typed_ctxt->get_service_client_ref().put_and_forget<VolatileCascadeStoreWithStringKey>(obj,0,1); 
-       				         std::cout << "SEND put worked!" << std::endl; 				
+       				         std::cout << "SENDING of RECEIVE worked!" << std::endl; 				
        }
        else if(tokens[1] == "receive"){
 		size_t      oob_mr_size     = 1ul << 20;
@@ -88,6 +88,13 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 	uint64_t rkey = object->get_timestamp();
 	uint64_t result = *reinterpret_cast<const uint64_t*>(object->blob.bytes);
 	uint64_t ptr = reinterpret_cast<uint64_t>(this->oob_mr_ptr);
+	
+	std::cout << "RKEY received" << rkey << std::endl;
+
+	std::cout << "Mem addr to write to:" << result <, std::endl;
+
+	uint8_t* byte_ptr = reinterpret_cast<uint8_t*>(this->oob_mr_ptr);
+	std::cout << "My mem and what is at it" << ptr << " | " << static_cast<char>(byte_ptr[1]) << std::endl;  
 
 	typed_ctxt->get_service_client_ref().oob_memwrite<VolatileCascadeStoreWithStringKey>(result,sender, rkey,256,false,ptr,false, true);
 	 }

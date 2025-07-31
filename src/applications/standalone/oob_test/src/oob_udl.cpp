@@ -91,7 +91,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 	
 	std::cout << "RKEY received" << rkey << std::endl;
 
-	std::cout << "Mem addr to write to:" << result <, std::endl;
+	std::cout << "Mem addr to write to:" << result << std::endl;
 
 	uint8_t* byte_ptr = reinterpret_cast<uint8_t*>(this->oob_mr_ptr);
 	std::cout << "My mem and what is at it" << ptr << " | " << static_cast<char>(byte_ptr[1]) << std::endl;  

@@ -18,7 +18,13 @@ std::string get_description() {
 class OOBOCDPO: public OffCriticalDataPathObserver {
    
 	void* oob_mr_ptr = nullptr; 
-       
+	
+
+	struct Payload{
+			uint64_t addr;
+			uint64_t rkey;	
+	};
+
 	virtual void operator () (const derecho::node_id_t sender,
                               const std::string& key_string,
                               const uint32_t prefix_length,
@@ -72,23 +78,26 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
     		derecho::memory_attribute_t attr;
 		attr.type = derecho::memory_attribute_t::SYSTEM;
 	       	typed_ctxt->get_service_client_ref().oob_register_mem_ex(this->oob_mr_ptr,oob_mr_size,attr);
-		uint64_t ptr = reinterpret_cast<uint64_t>(this->oob_mr_ptr);
-		auto rkey =  typed_ctxt->get_service_client_ref().oob_rkey(oob_mr_ptr);
+		uint64_t ptr = reinterpret_cast<uint64_t>(this->oob_mr_ptr);	
+		auto rkey =  typed_ctxt->get_service_client_ref().oob_rkey(oob_mr_ptr);	
+		Payload payload{ptr,rkey};
 		std::cout << typed_ctxt->get_service_client_ref().oob_rkey(this->oob_mr_ptr) << " RKEY FOR: " << ptr << std::endl;
 		 std::cout << "Int mem Original: " << ptr << std::endl;
-		Blob blob(reinterpret_cast<const uint8_t*>(&ptr), oob_data_size);  
+		Blob blob(reinterpret_cast<const uint8_t*>(&payload), oob_data_size);  
 		ObjectWithStringKey obj ("oob/oob_write",blob);
-		obj.set_timestamp(rkey);
+		// obj.set_timestamp(rkey);
 		std::cout << "SEND" << std::endl;
       		typed_ctxt->get_service_client_ref().put_and_forget<VolatileCascadeStoreWithStringKey>(obj,0,0); 
        }
        else if (tokens[1] == "oob_write"){
 
 	const ObjectWithStringKey* object = dynamic_cast<const ObjectWithStringKey*>(value_ptr);
-	uint64_t rkey = object->get_timestamp();
-	uint64_t result = *reinterpret_cast<const uint64_t*>(object->blob.bytes);
+// 	uint64_t rkey = object->get_timestamp();
+	const Payload* payload  = reinterpret_cast<const Payload*>(object->blob.bytes);
 	uint64_t ptr = reinterpret_cast<uint64_t>(this->oob_mr_ptr);
-	
+	uint64_t result = payload->addr;
+	uint64_t rkey = payload->rkey;
+
 	std::cout << "RKEY received" << rkey << std::endl;
 
 	std::cout << "Mem addr to write to:" << result << std::endl;

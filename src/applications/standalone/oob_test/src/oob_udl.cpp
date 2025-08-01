@@ -80,7 +80,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 		ObjectWithStringKey obj ("oob/oob_write",blob);
 		obj.set_timestamp(rkey);
 		std::cout << "SEND" << std::endl;
-      		typed_ctxt->get_service_client_ref().put_and_forget<VolatileCascadeStoreWithStringKey>(obj,0,1); 
+      		typed_ctxt->get_service_client_ref().put_and_forget<VolatileCascadeStoreWithStringKey>(obj,0,0); 
        }
        else if (tokens[1] == "oob_write"){
 

@@ -103,8 +103,16 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 	std::cout << "Mem addr to write to:" << result << std::endl;
 
 	uint8_t* byte_ptr = reinterpret_cast<uint8_t*>(this->oob_mr_ptr);
+	
 	std::cout << "My mem and what is at it" << ptr << " | " << static_cast<char>(byte_ptr[1]) << std::endl;  
 
+	std::cout << typed_ctxt->get_service_client_ref().oob_rkey(this->ptr) << std::endl;
+	
+	std::cout << "Mem addr that I write to "<< result << std::endl;
+	std::cout << "Node that I am writing to " << sender << std::endl;
+	std::cout << "rkey for mem" << rkey << std::endl;
+	std::cout << "Mem addr that I write from " << ptr << std::endl;
+	
 	typed_ctxt->get_service_client_ref().oob_memwrite<VolatileCascadeStoreWithStringKey>(result,sender, rkey,256,false,ptr,false, true);
 	 }
        else if (tokens[1] == "check"){

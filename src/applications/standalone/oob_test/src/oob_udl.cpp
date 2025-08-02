@@ -106,7 +106,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 	
 	std::cout << "My mem and what is at it" << ptr << " | " << static_cast<char>(byte_ptr[1]) << std::endl;  
 
-	std::cout << typed_ctxt->get_service_client_ref().oob_rkey(this->ptr) << std::endl;
+	std::cout << typed_ctxt->get_service_client_ref().oob_rkey(this->oob_mr_ptr) << std::endl;
 	
 	std::cout << "Mem addr that I write to "<< result << std::endl;
 	std::cout << "Node that I am writing to " << sender << std::endl;

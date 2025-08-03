@@ -35,7 +35,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
                               uint32_t worker_id) override {
        auto* typed_ctxt = dynamic_cast<DefaultCascadeContextType*>(ctxt);
 
-	    std::cout << "[OOB]: I(" << worker_id << ") received an object from sender:" << sender << " with key=" << key_string 
+	    std::cout << "[OOB]: I am node " << typed_ctxt->get_service_client_ref().get_my_id() << " and I received an object from sender:" << sender << " with key= " << key_string 
                   << ", matching prefix=" << key_string.substr(0,prefix_length) << std::endl;
        auto tokens = str_tokenizer(key_string);
        if (tokens[1] == "send"){

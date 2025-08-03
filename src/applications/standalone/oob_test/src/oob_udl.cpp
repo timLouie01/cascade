@@ -23,6 +23,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 	struct Payload{
 			uint64_t addr;
 			uint64_t rkey;	
+			uint32_t dest;
 	};
 
 	virtual void operator () (const derecho::node_id_t sender,
@@ -80,7 +81,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 	       	typed_ctxt->get_service_client_ref().oob_register_mem_ex(this->oob_mr_ptr,oob_mr_size,attr);
 		uint64_t ptr = reinterpret_cast<uint64_t>(this->oob_mr_ptr);	
 		auto rkey =  typed_ctxt->get_service_client_ref().oob_rkey(oob_mr_ptr);	
-		Payload payload{ptr,rkey};
+		Payload payload{ptr,rkey,typed_ctxt->get_service_client_ref().get_my_id()} ;
 		std::cout << typed_ctxt->get_service_client_ref().oob_rkey(this->oob_mr_ptr) << " RKEY FOR: " << ptr << std::endl;
 		 std::cout << "Int mem Original: " << ptr << std::endl;
 		Blob blob(reinterpret_cast<const uint8_t*>(&payload), oob_data_size);  
@@ -97,7 +98,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 	uint64_t ptr = reinterpret_cast<uint64_t>(this->oob_mr_ptr);
 	uint64_t result = payload->addr;
 	uint64_t rkey = payload->rkey;
-
+	auto dest = payload->dest;
 	std::cout << "RKEY received" << rkey << std::endl;
 
 	std::cout << "Mem addr to write to:" << result << std::endl;
@@ -113,7 +114,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 	std::cout << "rkey for mem" << rkey << std::endl;
 	std::cout << "Mem addr that I write from " << ptr << std::endl;
 	
-	typed_ctxt->get_service_client_ref().oob_memwrite<VolatileCascadeStoreWithStringKey>(result,sender, rkey,256,false,ptr,false, true);
+	typed_ctxt->get_service_client_ref().oob_memwrite<VolatileCascadeStoreWithStringKey>(result,dest, rkey,256,false,ptr,false, true);
 	 }
        else if (tokens[1] == "check"){
 	       std::cout << "CHECK" << std::endl;

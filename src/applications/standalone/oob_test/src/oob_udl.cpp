@@ -27,7 +27,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 			uint32_t dest;
 	};
 
-	const	Payload* payload_store = nullptr;
+	std::optional<Payload> payload_store;
 
 	virtual void operator () (const derecho::node_id_t sender,
                               const std::string& key_string,
@@ -102,7 +102,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 	uint64_t result = payload->addr;
 	uint64_t rkey = payload->rkey;
 	auto dest = payload->dest;
-	this->payload_store = payload;
+	payload_store = *payload;
 	std::cout << "RKEY received" << rkey << std::endl;
 
 	std::cout << "Mem addr to write to:" << result << std::endl;
@@ -123,7 +123,6 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
        else if (tokens[1] == "check"){
 	       std::cout << "CHECK" << std::endl;
 	        size_t      oob_mr_size     = 1ul << 20;
-		size_t      oob_data_size =256;
 		auto ptr = aligned_alloc(4096,oob_mr_size);
 		derecho::memory_attribute_t attr;
 															       				           attr.type = derecho::memory_attribute_t::SYSTEM;
@@ -131,10 +130,10 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 																									  					  
 																			uint64_t ptr_1 = reinterpret_cast<uint64_t>(ptr);
 								   
-																					  typed_ctxt->get_service_client_ref().oob_memread<VolatileCascadeStoreWithStringKey>(payload_store->addr+255,payload_store->dest,payload_store->rkey,256,false,ptr_1,false, true);
+																					  typed_ctxt->get_service_client_ref().oob_memread<VolatileCascadeStoreWithStringKey>(payload_store->addr+255,payload_store->dest,payload_store->rkey,1,false,ptr_1,false, true);
 
 uint8_t* byte_ptr = reinterpret_cast<uint8_t*>(ptr);
-	std::cout << "Remote Node has " << static_cast<char>(byte_ptr[1]) << std::endl;
+	std::cout << "Remote Node has " << static_cast<char>(byte_ptr[0]) << std::endl;
 
        } else {
 	std::cout << "Unsupported oob operation called!" << std::endl;

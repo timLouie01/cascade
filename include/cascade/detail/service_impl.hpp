@@ -812,7 +812,7 @@ void ServiceClient<CascadeTypes...>::oob_memread(uint64_t remote_addr, const nod
 	struct iovec iov;
 	iov.iov_base    = reinterpret_cast<void*>(local_addr);                         iov.iov_len     = static_cast<size_t>(size);
 	auto& subgroup_handle = group_ptr->template get_subgroup<SubgroupType>();
-	subgroup_handle.oob_remote_read(remote_node, iov,1,remote_addr, r_key, size);
+	subgroup_handle.oob_remote_read(remote_node, &iov,1,remote_addr, r_key, size);
 	if (sync){
 	subgroup_handle.wait_for_oob_op(remote_node, 0, 1000);
 	}

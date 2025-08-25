@@ -83,7 +83,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 					const size_t flag_mr_size = 4096;
                				this->flag_mr_ptr = aligned_alloc(4096, flag_mr_size);
 	     // Initialize flag to 1 (true to overwrite)
-		 			std::memset(this->flag_mr_ptr, 0, 1);
+		 			std::memset(this->flag_mr_ptr, 1, 1);
                  			typed_ctxt->get_service_client_ref().oob_register_mem_ex(this->flag_mr_ptr, flag_mr_size, attr);
 					auto* local_flag = reinterpret_cast<uint8_t*>(this->flag_mr_ptr);
 					std::cout << "OVERWRITE FLAG: " << int(local_flag[0]) << std::endl;

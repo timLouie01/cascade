@@ -117,7 +117,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 
 		Payload payload{data_addr, data_rkey, flag_addr, flag_rkey, dest};
 
-		Blob blob(reinterpret_cast<const uint8_t*>(&payload), oob_data_size);  
+		Blob blob(reinterpret_cast<const uint8_t*>(&payload), sizeof(payload));  
 		ObjectWithStringKey obj ("oob/oob_write",blob);
 		// obj.set_timestamp(rkey);
 		std::cout << "SEND" << std::endl;
@@ -129,11 +129,12 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 			{
 				uint8_t* p = static_cast<uint8_t*>(oob_mr_ptr);
 				std::cout << "ASCII: \"";
-				for (size_t i = 0; i < oob_mr_size; ++i) {
+				for (size_t i = 0; i < oob_data_size; ++i) {
 					    char ch = (p[i] >= 32 && p[i] <= 126) ? char(p[i]) : '.';
 					        std::cout << ch;
 				}
 				std::cout << "\"\n";
+				break;
 			}
 		}
        }

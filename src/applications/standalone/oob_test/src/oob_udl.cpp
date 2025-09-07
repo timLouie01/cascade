@@ -2,7 +2,13 @@
 #include <iostream>
 #include <cascade/utils.hpp>
 #include <memory>
- #include <sys/mman.h>
+#include <sys/mman.h>
+#ifndef LOG_OOBWRITE_RECV
+#define LOG_OOBWRITE_RECV 1001
+#endif
+#ifndef LOG_OOBWRITE_SEND
+#define LOG_OOBWRITE_SEND 1002
+#endif
  
 namespace derecho{
 namespace cascade{
@@ -22,24 +28,20 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
    
 	void* oob_mr_ptr = nullptr;
 	
+	uint64_t buff_size;
+
+	void* buff_mr_ptr = nullptr;
 	
-	// Receiver-side flag MR pointer (only meaningful on the node that runs "receive")
 	void* flag_mr_ptr = nullptr;
-
-
 	
 	//   Payload now includes both data and flag descriptors
 	struct Payload {
-	  std::vector<uint64_t> data_addrs;
-	  std::vector<uint64_t> data_rkeys;
+	  uint64_t data_addr;
+	  uint64_t data_rkey;
 	  uint64_t flag_addr;
 	  uint64_t flag_rkey;
 	  uint32_t dest; // node id that owns the remote MRs
   };
-
-	std::vector<void*> addrs;
-	std::vector<int> sizes;
-
 
 	static inline void warm_and_lock(void* p, size_t len, char data) {
     	(void) mlock(p, len);
@@ -83,13 +85,8 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 			auto* base = static_cast<std::byte*>(this->oob_mr_ptr);
 			auto* end  = base + oob_mr_size;
 
-			void* buf_1Kib = base;
-			void* buf_1Mib = base + PAGE;
-
-			addrs.push_back(buf_1Kib);
-			addrs.push_back(buf_1Mib);
-			sizes.push_back(1'024);
-			sizes.push_back(1'048'576);
+			this-> buff_mr_ptr = base+PAGE;
+			this->buff_size = MiB;
 
 			derecho::memory_attribute_t attr;
 			attr.type = derecho::memory_attribute_t::SYSTEM;
@@ -98,11 +95,14 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 			uint64_t ptr = reinterpret_cast<uint64_t>(this->oob_mr_ptr);
 			Blob blob;
 			ObjectWithStringKey obj ("oob/receive",blob);
-      typed_ctxt->get_service_client_ref().put_and_forget<VolatileCascadeStoreWithStringKey>(obj,0,1);  				
-			const size_t flag_mr_size = 4096;
-      this->flag_mr_ptr = aligned_alloc(4096, flag_mr_size);
-		 	std::memset(this->flag_mr_ptr, 1, 1);
-      typed_ctxt->get_service_client_ref().oob_register_mem_ex(this->flag_mr_ptr, flag_mr_size, attr);
+      typed_ctxt->get_service_client_ref().put_and_forget<VolatileCascadeStoreWithStringKey>(obj,0,1);  	
+			
+			// Set "Complete" Flag:
+			// Buffer Replace with a Set "Updated Tail Value" Value 
+			// (Value and not alloc memory after intial setup (there should be class level ptr to tail you overwrite))
+      this->flag_mr_ptr = base;
+			int intial_flag_value = 0;
+		 	*static_cast<std::uint64_t*>(this->flag_mr_ptr) = intial_flag_value;
     }
     else if(tokens[1] == "receive"){
 			size_t PAGE = 4096;
@@ -116,33 +116,29 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 			auto* base = static_cast<std::byte*>(this->oob_mr_ptr);
 			auto* end  = base + oob_mr_size;
 
-			void* buf_1Kib = base;
-			void* buf_1Mib = base + PAGE;
+			this-> buff_mr_ptr = base+PAGE;
+			this->buff_size = MiB;
 
     	derecho::memory_attribute_t attr;
 			attr.type = derecho::memory_attribute_t::SYSTEM;
 	    typed_ctxt->get_service_client_ref().oob_register_mem_ex(this->oob_mr_ptr,oob_mr_size,attr);
 			
-			const uint64_t data_addr_1Kib = reinterpret_cast<uint64_t>(buf_1Kib);
-			const uint64_t data_rkey_1Kib = typed_ctxt->get_service_client_ref().oob_rkey(buf_1Kib);
-		
-			const uint64_t data_addr_1Mib = reinterpret_cast<uint64_t>(buf_1Mib);
-			const uint64_t data_rkey_1Mib = typed_ctxt->get_service_client_ref().oob_rkey(buf_1Mib);
+			const uint64_t data_addr_buff = reinterpret_cast<uint64_t>(buff_mr_ptr);
+			const uint64_t data_rkey = typed_ctxt->get_service_client_ref().oob_rkey(buff_mr_ptr);
 
-			const size_t flag_mr_size = 4096;
-      this->flag_mr_ptr = aligned_alloc(4096, flag_mr_size);
-		  std::memset(this->flag_mr_ptr, 0, 1);
-      typed_ctxt->get_service_client_ref().oob_register_mem_ex(this->flag_mr_ptr, flag_mr_size, attr);
+			this->flag_mr_ptr = base;
+			int intial_flag_value = 0;
+		 	*static_cast<std::uint64_t*>(this->flag_mr_ptr) = intial_flag_value;
 
 			const uint64_t flag_addr = reinterpret_cast<uint64_t>(this->flag_mr_ptr);
-			const uint64_t flag_rkey = typed_ctxt->get_service_client_ref().oob_rkey(this->flag_mr_ptr);
+			const uint64_t flag_rkey = data_rkey;
 	    const uint32_t dest = typed_ctxt->get_service_client_ref().get_my_id();
 
-			// std::cout << "DATA rkey=" << data_rkey << " @ " << data_addr << std::endl;
-			// std::cout << "FLAG rkey=" << flag_rkey << " @ " << flag_addr << " (initialized to 0)" << std::endl;
+			std::cout << "DATA rkey=" << data_rkey << " @ " << data_addr_buff << std::endl;
+			std::cout << "FLAG rkey=" << flag_rkey << " @ " << flag_addr << " (initialized to 0)" << std::endl;
 
-			Payload payload{{data_addr_1Kib, data_addr_1Mib}, {data_rkey_1Kib,data_rkey_1Mib}, flag_addr, flag_rkey, dest};
-			 Blob blob(reinterpret_cast<const uint8_t*>(&payload), sizeof(payload));  
+			Payload payload{data_addr_buff, data_rkey, flag_addr,flag_rkey, dest};
+			Blob blob(reinterpret_cast<const uint8_t*>(&payload), sizeof(payload));  
 			// Blob blob_1(reinterpret_cast<const uint8_t*>(&payload_1), sizeof(payload_1));  
 			// Blob blob_2(reinterpret_cast<const uint8_t*>(&payload_2), sizeof(payload_2));  
 
@@ -154,43 +150,74 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
       // typed_ctxt->get_service_client_ref().put_and_forget<VolatileCascadeStoreWithStringKey>(obj_1,0,0); 
 			// typed_ctxt->get_service_client_ref().put_and_forget<VolatileCascadeStoreWithStringKey>(obj_2,0,0); 
 			
-			uint8_t* flag = reinterpret_cast<uint8_t*>(flag_mr_ptr);
-			int local_flag = 0;
+			uint64_t* flag64_ptr = static_cast<std::uint64_t*>(this->flag_mr_ptr);
+			int consume_flag = 0;
+			int my_node_id = typed_ctxt->get_service_client_ref().get_my_id();
+			int dist_size = 2'500;
 			for (;;) {
-				if (*flag == -1){
-					for (; local_flag < *flag; ++local_flag){
-						uint8_t* p = static_cast<uint8_t*>(this->addrs[local_flag]);
-						for (size_t i = 0; i < this->sizes[local_flag]; ++i) {
+				std::uint64_t current_flag = __atomic_load_n(flag64_ptr, __ATOMIC_ACQUIRE);
+				if(current_flag > consume_flag){
+					TimestampLogger::log(LOG_OOBWRITE_RECV,my_node_id,current_flag);
+						uint8_t* p = static_cast<uint8_t*>(this->buff_mr_ptr);
+						for (size_t i = 0; i < this->buff_size; ++i) {
 							char ch = (p[i] >= 32 && p[i] <= 126) ? char(p[i]) : '.';
 							std::cout << ch;
 						}
 						std::cout << "\"\n";
-						return;
-					}
+						consume_flag = current_flag;
 				}
-				else if(*flag > local_flag){
-					for (; local_flag < *flag; ++local_flag){
-						uint8_t* p = static_cast<uint8_t*>(this->addrs[local_flag]);
-						for (size_t i = 0; i < this->sizes[local_flag]; ++i) {
-							char ch = (p[i] >= 32 && p[i] <= 126) ? char(p[i]) : '.';
-							std::cout << ch;
-						}
-						std::cout << "\"\n";
-					}
+				else if (consume_flag == dist_size ){
+					TimestampLogger::flush("recv_oobwrite_timestamp.dat");
+					std::cout << "Flushed logs to " << "recv_oobwrite_timestamp.dat" << std::endl;
+					break;
 				}
 			}
+	/**
+	  Potential Tail Poling Logic For Buffer (TODO: Fix Variable size logic list addr will instead be the actuall buffer potentially depending on Implementation
+	*/
+	// for (;;) {
+	// 			if (*flag == -1){
+	// 				for (; local_flag < *flag; ++local_flag){
+	// 					uint8_t* p = static_cast<uint8_t*>(this->addrs[local_flag]);
+	// 					for (size_t i = 0; i < this->sizes[local_flag]; ++i) {
+	// 						char ch = (p[i] >= 32 && p[i] <= 126) ? char(p[i]) : '.';
+	// 						std::cout << ch;
+	// 					}
+	// 					std::cout << "\"\n";
+	// 					return;
+	// 				}
+	// 			}
+	// 			else if(*flag > local_flag){
+	// 				for (; local_flag < *flag; ++local_flag){
+	// 					uint8_t* p = static_cast<uint8_t*>(this->addrs[local_flag]);
+	// 					for (size_t i = 0; i < this->sizes[local_flag]; ++i) {
+	// 						char ch = (p[i] >= 32 && p[i] <= 126) ? char(p[i]) : '.';
+	// 						std::cout << ch;
+	// 					}
+	// 					std::cout << "\"\n";
+	// 				}
+	// 			}
+	// 		}
     }
     else if (tokens[1] == "oob_write"){
 
 			const ObjectWithStringKey* object = dynamic_cast<const ObjectWithStringKey*>(value_ptr);
 
 			const Payload* payload  = reinterpret_cast<const Payload*>(object->blob.bytes);
-			uint64_t local_flag_ptr = reinterpret_cast<uint64_t>(this->flag_mr_ptr);
 
-			for (int i = 0; i < payload->data_addrs.size(); i++){
-				typed_ctxt->get_service_client_ref().oob_memwrite<VolatileCascadeStoreWithStringKey>(payload->data_addrs[i],payload->dest,payload->data_rkeys[i],this->sizes[i],false,reinterpret_cast<uint64_t>(this->addrs[i]),false, false);
+			uint64_t* flag64_ptr = static_cast<std::uint64_t*>(this->flag_mr_ptr);
+			int sent_flag = 0;
+			int dist_size = 2'500;
+			int my_node_id = typed_ctxt->get_service_client_ref().get_my_id();
+			for (int i = 0; i < dist_size; i++){
+				TimestampLogger::log(LOG_OOBWRITE_SEND,my_node_id,*flag64_ptr);
+				typed_ctxt->get_service_client_ref().oob_memwrite<VolatileCascadeStoreWithStringKey>(payload->data_addr,payload->dest,payload->data_rkey,this->buff_size,false,reinterpret_cast<uint64_t>(this->buff_mr_ptr),false, false);
+				typed_ctxt->get_service_client_ref().oob_memwrite<VolatileCascadeStoreWithStringKey>(payload->flag_addr,payload->dest,payload->flag_rkey,8,false,*flag64_ptr,false, false);
+				__atomic_store_n(flag64_ptr,*flag64_ptr+1, __ATOMIC_RELAXED);
 			}
-    }
+			TimestampLogger::flush("send_oobwrite_timestamp.dat");
+			std::cout << "Flushed logs to " << "send_oobwrite_timestamp.dat" << std::endl;
+		}
     else {
 				std::cout << "Unsupported oob operation called!" << std::endl;
     }

@@ -104,12 +104,12 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
   	auto* typed_ctxt = dynamic_cast<DefaultCascadeContextType*>(ctxt);
 		auto& client = typed_ctxt->get_service_client_ref();
 
-	  std::cout << "[OOB]: I am node "
-                  << client.get_my_id()
-                  << " and I received an object from sender:" << sender
-                  << " with key=" << key_string
-                  << ", matching prefix=" << key_string.substr(0, prefix_length)
-                  << std::endl;
+	  // std::cout << "[OOB]: I am node "
+    //               << client.get_my_id()
+    //               << " and I received an object from sender:" << sender
+    //               << " with key=" << key_string
+    //               << ", matching prefix=" << key_string.substr(0, prefix_length)
+    //               << std::endl;
 
     auto tokens = str_tokenizer(key_string);
     
@@ -186,7 +186,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
       auto* send_flag_ptr = static_cast<std::uint64_t*>(this->flag_mr_ptr);
 
       int my_node_id = client.get_my_id();
-     	const int dist_size = 2'500;
+     	const int dist_size = 2;
 
       for (int i = 0; i < dist_size; ++i) {
       	// Update local flag value then write it to the remote flag

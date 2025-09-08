@@ -3,6 +3,8 @@
 #include <cascade/utils.hpp>
 #include <memory>
 #include <sys/mman.h>
+#include <thread>
+#include <chrono>
 #ifndef LOG_OOBWRITE_RECV
 #define LOG_OOBWRITE_RECV 6004
 #endif
@@ -154,29 +156,25 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 
       // Poll the local flag until dist_size reached
       auto* flag64_ptr = static_cast<std::uint64_t*>(flag_mr_ptr);
-      int consume_flag = 0;
       int my_node_id = client.get_my_id();
       const int dist_size = 2'500;
 
-      for (;;) {
-      	std::uint64_t current_flag = __atomic_load_n(flag64_ptr, __ATOMIC_ACQUIRE);
-        if (current_flag > static_cast<std::uint64_t>(consume_flag)) {
-        	TimestampLogger::log(LOG_OOBWRITE_RECV, my_node_id, current_flag);
-					// (Optional) dump buffer content – beware: prints 1 MiB per update!
-          // uint8_t* p = static_cast<uint8_t*>(buff_mr_ptr);
-          // for (size_t i = 0; i < buff_size; ++i) {
-          //               char ch = (p[i] >= 32 && p[i] <= 126) ? char(p[i]) : '.';
-          //               std::cout << ch;
-          // }
-          // std::cout << "\"\n";
-          consume_flag = static_cast<int>(current_flag);
-          } else if (consume_flag == dist_size) {
-                    TimestampLogger::flush("recv_oobwrite_timestamp.dat");
-                    std::cout << "Flushed logs to recv_oobwrite_timestamp.dat" << std::endl;
-                    break;
-          }
-				}
-		}	
+      std::thread([flag64_ptr, buff_mr_ptr, my_node_id, dist_size]{
+				uint64_t consume_flag = 0;
+				while (consume_flag < dist_size){
+					std::uint64_t current_flag = __atomic_load_n(flag64_ptr, __ATOMIC_ACQUIRE);
+        	if (current_flag > consume_flag){
+						TimestampLogger::log(LOG_OOBWRITE_RECV, my_node_id, current_flag);
+						consume_flag = static_cast<int>(current_flag);
+					}else{
+						_mm_pause();
+					}
+        } 
+          TimestampLogger::flush("recv_oobwrite_timestamp.dat");
+          std::cout << "Flushed logs to recv_oobwrite_timestamp.dat" << std::endl;
+			}).detach();
+
+		}
     else if (tokens[1] == "oob_write"){
 			// Send Writes after Receive has registered remote MR + remote Flag
       const ObjectWithStringKey* object = dynamic_cast<const ObjectWithStringKey*>(value_ptr);
@@ -186,9 +184,10 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
       auto* send_flag_ptr = static_cast<std::uint64_t*>(this->flag_mr_ptr);
 
       int my_node_id = client.get_my_id();
-     	const int dist_size = 2;
+     	const int dist_size = 2'500;
 
-      for (int i = 0; i < dist_size; ++i) {
+			std::thread([client, payload, send_flag_ptr, buff_mr_ptr, buff_size, my_node_id, dist_size] {
+      for (int i = 0; i < dist_size; ++i){
       	// Update local flag value then write it to the remote flag
         *send_flag_ptr = static_cast<std::uint64_t>(i + 1);
         TimestampLogger::log(LOG_OOBWRITE_SEND, my_node_id, *send_flag_ptr);
@@ -219,6 +218,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
       }
       TimestampLogger::flush("send_oobwrite_timestamp.dat");
       std::cout << "Flushed logs to send_oobwrite_timestamp.dat" << std::endl;
+		}).detach();
 		}
     else {
 				std::cout << "Unsupported oob operation called!" << std::endl;

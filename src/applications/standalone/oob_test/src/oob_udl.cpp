@@ -119,7 +119,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 
 			// Sender
       const size_t MiB = 1024ull * 1024ull;
-      buff_size = MiB;
+      buff_size = 8*MiB;
 
       // buffer: 1 MiB
     	buff_mr_ptr = alloc_warm_register(client, buff_size,true,false,false);
@@ -133,7 +133,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
     else if(tokens[1] == "receive"){
 		// Receiver
     	const size_t MiB = 1024ull * 1024ull;
-      buff_size = MiB;
+      buff_size = 8*MiB;
 
       buff_mr_ptr = alloc_warm_register(client, buff_size, false, false,false);
       flag_mr_ptr = alloc_warm_register(client, CACHELINE, false, true,false);

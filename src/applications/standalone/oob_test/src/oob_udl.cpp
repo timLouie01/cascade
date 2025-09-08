@@ -159,7 +159,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
       int my_node_id = client.get_my_id();
       const int dist_size = 2'500;
 
-      std::thread([flag64_ptr, buff_mr_ptr, my_node_id, dist_size]{
+      std::thread([flag64_ptr, my_node_id, dist_size]{
 				uint64_t consume_flag = 0;
 				while (consume_flag < dist_size){
 					std::uint64_t current_flag = __atomic_load_n(flag64_ptr, __ATOMIC_ACQUIRE);
@@ -167,7 +167,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 						TimestampLogger::log(LOG_OOBWRITE_RECV, my_node_id, current_flag);
 						consume_flag = static_cast<int>(current_flag);
 					}else{
-						_mm_pause();
+						std::this_thread::yield();
 					}
         } 
           TimestampLogger::flush("recv_oobwrite_timestamp.dat");
@@ -178,47 +178,55 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
     else if (tokens[1] == "oob_write"){
 			// Send Writes after Receive has registered remote MR + remote Flag
       const ObjectWithStringKey* object = dynamic_cast<const ObjectWithStringKey*>(value_ptr);
-    	const Payload* payload = reinterpret_cast<const Payload*>(object->blob.bytes);
+    	const Payload payload = *reinterpret_cast<const Payload*>(object->blob.bytes);
 
-      // Local pointers
-      auto* send_flag_ptr = static_cast<std::uint64_t*>(this->flag_mr_ptr);
+      // Local
+			auto* send_flag_ptr   = static_cast<std::uint64_t*>(this->flag_mr_ptr);
+			auto* src_buf         = static_cast<std::uint8_t*>(this->buff_mr_ptr);
+			const std::size_t local_buf_size = this->buff_size;
+
+			auto* ctx_ptr = typed_ctxt;
+			const int local_node_id = ctx_ptr->get_service_client_ref().get_my_id();
+			const int local_dist_size = 2500;
 
       int my_node_id = client.get_my_id();
      	const int dist_size = 2'500;
 
-			std::thread([client, payload, send_flag_ptr, buff_mr_ptr, buff_size, my_node_id, dist_size] {
-      for (int i = 0; i < dist_size; ++i){
-      	// Update local flag value then write it to the remote flag
-        *send_flag_ptr = static_cast<std::uint64_t>(i + 1);
-        TimestampLogger::log(LOG_OOBWRITE_SEND, my_node_id, *send_flag_ptr);
+			std::thread([ctx_ptr, payload, send_flag_ptr, src_buf, local_buf_size, my_node_id, local_dist_size]{
+				
+				auto& client = ctx_ptr->get_service_client_ref();
+      	for (int i = 0; i < dist_size; ++i){
+      		// Update local flag value then write it to the remote flag
+        	*send_flag_ptr = static_cast<std::uint64_t>(i + 1);
+        	TimestampLogger::log(LOG_OOBWRITE_SEND, my_node_id, *send_flag_ptr);
 
-        // Write buffer → remote data
-        client.template oob_memwrite<VolatileCascadeStoreWithStringKey>(
-        	payload->data_addr,
-          payload->dest,
-          payload->data_rkey,
-          buff_size,
-          false,
-          reinterpret_cast<uint64_t>(buff_mr_ptr),
-          false,
-          false
-        );
+        	// Write buffer → remote data
+        	client.template oob_memwrite<VolatileCascadeStoreWithStringKey>(
+        		payload.data_addr,
+          	payload.dest,
+          	payload.data_rkey,
+          	local_buf_size,
+          	false,
+          	reinterpret_cast<uint64_t>(src_buf),
+          	false,
+          	false
+        	);
 
-        // Write flag to remote flag
-        client.template oob_memwrite<VolatileCascadeStoreWithStringKey>(
-          payload->flag_addr,
-          payload->dest,
-        	payload->flag_rkey,
-        	sizeof(std::uint64_t),
-        	false,
-          reinterpret_cast<uint64_t>(send_flag_ptr),
-          false,
-          false
-        );
-      }
-      TimestampLogger::flush("send_oobwrite_timestamp.dat");
-      std::cout << "Flushed logs to send_oobwrite_timestamp.dat" << std::endl;
-		}).detach();
+        	// Write flag to remote flag
+        	client.template oob_memwrite<VolatileCascadeStoreWithStringKey>(
+          	payload.flag_addr,
+          	payload.dest,
+        		payload.flag_rkey,
+        		sizeof(std::uint64_t),
+        		false,
+          	reinterpret_cast<uint64_t>(send_flag_ptr),
+          	false,
+          	false
+        	);
+     		}
+      	TimestampLogger::flush("send_oobwrite_timestamp.dat");
+      	std::cout << "Flushed logs to send_oobwrite_timestamp.dat" << std::endl;
+			}).detach();
 		}
     else {
 				std::cout << "Unsupported oob operation called!" << std::endl;

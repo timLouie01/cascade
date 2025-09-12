@@ -200,6 +200,18 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
         	*send_flag_ptr = static_cast<std::uint64_t>(i + 1);
         	TimestampLogger::log(LOG_OOBWRITE_SEND, my_node_id, *send_flag_ptr);
 
+					if (i != 0){
+						client.template wait_for_oob_op<VolatileCascadeStoreWithStringKey>(
+							payload.dest,
+							1,
+							1000
+						);
+						client.template wait_for_oob_op<VolatileCascadeStoreWithStringKey>(
+							payload.dest,
+							1,
+							1000
+						);
+					}
         	// Write buffer → remote data
         	client.template oob_memwrite<VolatileCascadeStoreWithStringKey>(
         		payload.data_addr,

@@ -832,6 +832,12 @@ void ServiceClient<CascadeTypes...>::oob_memwrite(uint64_t remote_addr, const no
 	}
 }
 
+template <typename... CascadeTypes>
+template <typename SubgroupType>
+void ServiceClient<CascadeTypes...>::wait_for_oob_op(const node_id_t& remote_node, uint32_t op, uint64_t timeout_us){
+    auto& subgroup_handle = group_ptr->template get_subgroup<SubgroupType>();
+    subgroup_handle.wait_for_oob_op(remote_node, op, timeout_us);
+}
 
 template <typename... CascadeTypes>
 void ServiceClient<CascadeTypes...>::oob_register_mem_ex(void* addr, size_t size, const memory_attribute_t& attr) {

@@ -204,12 +204,12 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 						client.template wait_for_oob_op<VolatileCascadeStoreWithStringKey>(
 							payload.dest,
 							1,
-							2000
+							3000
 						);
 						client.template wait_for_oob_op<VolatileCascadeStoreWithStringKey>(
 							payload.dest,
 							1,
-							2000
+							3000
 						);
 					}
         	// Write buffer → remote data

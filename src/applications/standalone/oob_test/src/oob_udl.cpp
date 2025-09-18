@@ -156,7 +156,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
       client.put_and_forget<VolatileCascadeStoreWithStringKey>(obj, 0, 0);
 
       // Poll the local flag until dist_size reached
-      auto* flag64_ptr = static_cast<std::uint64_t*>(flag_mr_ptr);
+      volatile auto* flag64_ptr = static_cast<std::uint64_t*>(flag_mr_ptr);
       int my_node_id = client.get_my_id();
       const int dist_size = 2'500;
 

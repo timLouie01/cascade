@@ -163,7 +163,8 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
       // std::thread([flag64_ptr, my_node_id, dist_size]{
 				uint64_t consume_flag = 0;
 				while (consume_flag < dist_size){
-					std::uint64_t current_flag = __atomic_load_n(flag64_ptr, __ATOMIC_ACQUIRE);
+					// std::uint64_t current_flag = __atomic_load_n(flag64_ptr, __ATOMIC_ACQUIRE);
+					std::uint64_t current_flag = flag64_ptr;
         	if (current_flag > consume_flag){
 						TimestampLogger::log(LOG_OOBWRITE_RECV, my_node_id, current_flag);
 						consume_flag = static_cast<int>(current_flag);
@@ -237,7 +238,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
      		}
       	TimestampLogger::flush("send_oobwrite_timestamp.dat");
       	std::cout << "Flushed logs to send_oobwrite_timestamp.dat" << std::endl;
-			// }).detach();mkd
+			// }).detach();
 		}
     else {
 				std::cout << "Unsupported oob operation called!" << std::endl;

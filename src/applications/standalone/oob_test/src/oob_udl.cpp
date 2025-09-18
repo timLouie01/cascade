@@ -120,7 +120,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 
 			// Sender
       const size_t MiB = 1024ull * 1024ull;
-      buff_size = 8*MiB;
+      buff_size = 5120ull;
 
       // buffer: 1 MiB
     	buff_mr_ptr = alloc_warm_register(client, buff_size,true,false,false);
@@ -134,7 +134,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
     else if(tokens[1] == "receive"){
 		// Receiver
     	const size_t MiB = 1024ull * 1024ull;
-      buff_size = 8*MiB;
+      buff_size = 5120ull;
 
       buff_mr_ptr = alloc_warm_register(client, buff_size, false, false,false);
       flag_mr_ptr = alloc_warm_register(client, CACHELINE, false, true,false);
@@ -167,8 +167,6 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
         	if (current_flag > consume_flag){
 						TimestampLogger::log(LOG_OOBWRITE_RECV, my_node_id, current_flag);
 						consume_flag = static_cast<int>(current_flag);
-					}else{
-						_mm_pause();
 					}
         } 
           TimestampLogger::flush("recv_oobwrite_timestamp.dat");

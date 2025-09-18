@@ -167,7 +167,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 						TimestampLogger::log(LOG_OOBWRITE_RECV, my_node_id, current_flag);
 						consume_flag = static_cast<int>(current_flag);
 					}else{
-						std::this_thread::yield();
+						_mm_pause();
 					}
         } 
           TimestampLogger::flush("recv_oobwrite_timestamp.dat");

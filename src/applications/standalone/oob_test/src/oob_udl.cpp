@@ -7,10 +7,10 @@
 #include <chrono>
 #include <immintrin.h>
 #ifndef LOG_OOBWRITE_RECV
-#define LOG_OOBWRITE_RECV 6004
+#define LOG_OOBWRITE_RECV 7006
 #endif
 #ifndef LOG_OOBWRITE_SEND
-#define LOG_OOBWRITE_SEND 6003
+#define LOG_OOBWRITE_SEND 7005
 #endif
  
 namespace derecho{
@@ -161,13 +161,12 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
       const int dist_size = 2'500;
 
       // std::thread([flag64_ptr, my_node_id, dist_size]{
-				uint64_t consume_flag = 0;
+				uint64_t consume_flag = -1;
 				while (consume_flag < dist_size){
 					// std::uint64_t current_flag = __atomic_load_n(flag64_ptr, __ATOMIC_ACQUIRE);
-					std::uint64_t current_flag = *flag64_ptr;
-        	if (current_flag > consume_flag){
-						TimestampLogger::log(LOG_OOBWRITE_RECV, my_node_id, current_flag);
-						consume_flag = static_cast<int>(current_flag);
+        	if (*flag64_ptr > consume_flag){
+						TimestampLogger::log(LOG_OOBWRITE_RECV, my_node_id, *flag64_ptr);
+						consume_flag = static_cast<uint>(*flag64_ptr);
 					}
         } 
           TimestampLogger::flush("recv_oobwrite_timestamp.dat");
@@ -197,7 +196,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 				auto& client = ctx_ptr->get_service_client_ref();
       	for (int i = 0; i < dist_size; ++i){
       		// Update local flag value then write it to the remote flag
-        	*send_flag_ptr = static_cast<std::uint64_t>(i + 1);
+        	*send_flag_ptr = static_cast<std::uint64_t>(i);
         
 					if (i != 0){
 						client.template wait_for_oob_op<VolatileCascadeStoreWithStringKey>(

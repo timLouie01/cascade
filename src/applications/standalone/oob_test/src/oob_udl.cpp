@@ -160,7 +160,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
       int my_node_id = client.get_my_id();
       const int dist_size = 2'500;
 
-      std::thread([flag64_ptr, my_node_id, dist_size]{
+      // std::thread([flag64_ptr, my_node_id, dist_size]{
 				uint64_t consume_flag = 0;
 				while (consume_flag < dist_size){
 					std::uint64_t current_flag = __atomic_load_n(flag64_ptr, __ATOMIC_ACQUIRE);
@@ -171,7 +171,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
         } 
           TimestampLogger::flush("recv_oobwrite_timestamp.dat");
           std::cout << "Flushed logs to recv_oobwrite_timestamp.dat" << std::endl;
-			}).detach();
+			// }).detach();
 
 		}
     else if (tokens[1] == "oob_write"){
@@ -191,7 +191,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
       int my_node_id = client.get_my_id();
      	const int dist_size = 2'500;
 
-			std::thread([ctx_ptr, payload, send_flag_ptr, src_buf, local_buf_size, my_node_id, local_dist_size]{
+			// std::thread([ctx_ptr, payload, send_flag_ptr, src_buf, local_buf_size, my_node_id, local_dist_size]{
 				
 				auto& client = ctx_ptr->get_service_client_ref();
       	for (int i = 0; i < dist_size; ++i){
@@ -237,7 +237,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
      		}
       	TimestampLogger::flush("send_oobwrite_timestamp.dat");
       	std::cout << "Flushed logs to send_oobwrite_timestamp.dat" << std::endl;
-			}).detach();
+			// }).detach();mkd
 		}
     else {
 				std::cout << "Unsupported oob operation called!" << std::endl;

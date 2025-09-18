@@ -164,7 +164,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 				uint64_t consume_flag = 0;
 				while (consume_flag < dist_size){
 					// std::uint64_t current_flag = __atomic_load_n(flag64_ptr, __ATOMIC_ACQUIRE);
-					std::uint64_t current_flag = flag64_ptr;
+					std::uint64_t current_flag = *flag64_ptr;
         	if (current_flag > consume_flag){
 						TimestampLogger::log(LOG_OOBWRITE_RECV, my_node_id, current_flag);
 						consume_flag = static_cast<int>(current_flag);

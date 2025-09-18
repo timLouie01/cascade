@@ -5,6 +5,7 @@
 #include <sys/mman.h>
 #include <thread>
 #include <chrono>
+#include <immintrin.h>
 #ifndef LOG_OOBWRITE_RECV
 #define LOG_OOBWRITE_RECV 6004
 #endif

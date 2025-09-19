@@ -156,17 +156,17 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
       client.put_and_forget<VolatileCascadeStoreWithStringKey>(obj, 0, 0);
 
       // Poll the local flag until dist_size reached
-      volatile auto* flag64_ptr = static_cast<std::uint64_t*>(flag_mr_ptr);
+      volatile std::uint64_t* flag64_ptr = static_cast<std::uint64_t*>(flag_mr_ptr);
       int my_node_id = client.get_my_id();
       const int dist_size = 2'500;
 
       // std::thread([flag64_ptr, my_node_id, dist_size]{
-				uint64_t consume_flag = -1;
+				uint64_t consume_flag = 0;
 				while (consume_flag < dist_size){
 					// std::uint64_t current_flag = __atomic_load_n(flag64_ptr, __ATOMIC_ACQUIRE);
         	if (*flag64_ptr > consume_flag){
 						TimestampLogger::log(LOG_OOBWRITE_RECV, my_node_id, *flag64_ptr);
-						consume_flag = static_cast<uint>(*flag64_ptr);
+						consume_flag = static_cast<uint64_t>(*flag64_ptr);
 					}
         } 
           TimestampLogger::flush("recv_oobwrite_timestamp.dat");
@@ -196,7 +196,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 				auto& client = ctx_ptr->get_service_client_ref();
       	for (int i = 0; i < dist_size; ++i){
       		// Update local flag value then write it to the remote flag
-        	*send_flag_ptr = static_cast<std::uint64_t>(i);
+        	*send_flag_ptr = static_cast<std::uint64_t>(i+1);
         
 					if (i != 0){
 						client.template wait_for_oob_op<VolatileCascadeStoreWithStringKey>(

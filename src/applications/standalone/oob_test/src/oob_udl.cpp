@@ -6,6 +6,8 @@
 #include <thread>
 #include <chrono>
 #include <immintrin.h>
+#include <pthread.h>   // pinning
+#include <sched.h>
 #ifndef LOG_OOBWRITE_RECV
 #define LOG_OOBWRITE_RECV 7006
 #endif
@@ -160,7 +162,10 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
       int my_node_id = client.get_my_id();
       const int dist_size = 2'500;
 
-      // std::thread([flag64_ptr, my_node_id, dist_size]{
+      std::thread([flag64_ptr, my_node_id, dist_size]{
+				cpu_set_t set; CPU_ZERO(&set); CPU_SET(5, &set);                // <-- choose the core
+ 				pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
+				pthread_setname_np(pthread_self(), "oob_polling_loop");   
 				uint64_t consume_flag = 0;
 				while (consume_flag < dist_size){
 					// std::uint64_t current_flag = __atomic_load_n(flag64_ptr, __ATOMIC_ACQUIRE);
@@ -171,7 +176,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
         } 
           TimestampLogger::flush("recv_oobwrite_timestamp.dat");
           std::cout << "Flushed logs to recv_oobwrite_timestamp.dat" << std::endl;
-			// }).detach();
+			}).detach();
 
 		}
     else if (tokens[1] == "oob_write"){

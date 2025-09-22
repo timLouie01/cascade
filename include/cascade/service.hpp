@@ -1716,6 +1716,24 @@ namespace cascade {
          * Get the singleton ServiceClient API. If it does not exists, initialize it as an external client.
          */
         static ServiceClient& get_service_client();
+
+    /* OOB */
+    public:
+        template <typename SubgroupType>
+        void oob_memread(uint64_t remote_addr, const node_id_t remote_node, uint64_t r_key, size_t size, bool remote_gpu, uint64_t local_addr, bool local_gpu, bool sync = false);
+
+
+	    template <typename SubgroupType>
+        void oob_memwrite(uint64_t remote_addr, const node_id_t remote_node, uint64_t r_key, size_t size, bool remote_gpu, uint64_t local_addr, bool local_gpu, bool sync = false);
+
+        template <typename SubgroupType>
+        void wait_for_oob_op(const node_id_t& remote_node, uint32_t op, uint64_t timeout_us);
+        
+	    void oob_register_mem_ex(void* addr, size_t size, const memory_attribute_t& attr);
+	
+	    void oob_deregister_mem(void* addr);
+       	
+	    uint64_t oob_rkey(void* addr);	
     }; // ServiceClient
 
 

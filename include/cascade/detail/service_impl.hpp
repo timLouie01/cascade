@@ -2241,6 +2241,55 @@ ServiceClient<CascadeTypes...>& ServiceClient<CascadeTypes...>::get_service_clie
 }
 #endif//__WITHOUT_SERVICE_SINGLETONS__
 
+/* OOB */
+template <typename... CascadeTypes>
+template <typename SubgroupType>
+void ServiceClient<CascadeTypes...>::oob_memread(uint64_t remote_addr, const node_id_t remote_node, uint64_t r_key, size_t size, bool remote_gpu, uint64_t local_addr, bool local_gpu, bool sync){
+
+	struct iovec iov;
+	iov.iov_base    = reinterpret_cast<void*>(local_addr);                         iov.iov_len     = static_cast<size_t>(size);
+	auto& subgroup_handle = group_ptr->template get_subgroup<SubgroupType>();
+	subgroup_handle.oob_remote_read(remote_node, &iov,1,remote_addr, r_key, size);
+	if (sync){
+	subgroup_handle.wait_for_oob_op(remote_node, 0, 1000);
+	}
+
+}
+
+template <typename... CascadeTypes>
+template <typename SubgroupType>
+void ServiceClient<CascadeTypes...>::oob_memwrite(uint64_t remote_addr, const node_id_t remote_node, uint64_t r_key, size_t size, bool remote_gpu, uint64_t local_addr, bool local_gpu, bool sync){
+
+	struct iovec iov;
+	iov.iov_base    = reinterpret_cast<void*>(local_addr);                         iov.iov_len     = static_cast<size_t>(size);
+	auto& subgroup_handle = group_ptr->template get_subgroup<SubgroupType>();
+	subgroup_handle.oob_remote_write(remote_node,&iov,1,remote_addr, r_key, size);
+	if (sync){
+	subgroup_handle.wait_for_oob_op(remote_node, 1, 1000);
+	}
+}
+
+template <typename... CascadeTypes>
+template <typename SubgroupType>
+void ServiceClient<CascadeTypes...>::wait_for_oob_op(const node_id_t& remote_node, uint32_t op, uint64_t timeout_us){
+    auto& subgroup_handle = group_ptr->template get_subgroup<SubgroupType>();
+    subgroup_handle.wait_for_oob_op(remote_node, op, timeout_us);
+}
+
+template <typename... CascadeTypes>
+void ServiceClient<CascadeTypes...>::oob_register_mem_ex(void* addr, size_t size, const memory_attribute_t& attr) {
+		group_ptr->register_oob_memory_ex(addr, size, attr);
+}
+
+template <typename... CascadeTypes>
+void ServiceClient<CascadeTypes...>::oob_deregister_mem(void* addr) {
+		group_ptr->deregister_oob_memory(addr);
+}
+template <typename... CascadeTypes>
+uint64_t ServiceClient<CascadeTypes...>::oob_rkey(void* addr){
+		return	group_ptr->get_oob_memory_key(addr);
+}
+
 template <typename... CascadeTypes>
 ExecutionEngine<CascadeTypes...>::ExecutionEngine() {
     stateless_action_queue_for_multicast.initialize();

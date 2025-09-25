@@ -165,6 +165,9 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
   			CPU_ZERO(&set);
   			CPU_SET(8, &set);
   			pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
+				sched_param sp{};
+    		sp.sched_priority = prio;
+    		pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp);
 				pthread_setname_np(pthread_self(), "OOB_RECV_FLAG_POLL_LOOP");
 				uint64_t consume_flag = 0;
 				while (consume_flag < dist_size){
@@ -201,6 +204,9 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
   			CPU_ZERO(&set);
   			CPU_SET(8, &set);
   			pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
+				sched_param sp{};
+    		sp.sched_priority = prio;
+    		pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp);
 				pthread_setname_np(pthread_self(), "OOB_WRITE_LOOP");
 				auto& client = ctx_ptr->get_service_client_ref();
       	for (int i = 0; i < dist_size; ++i){

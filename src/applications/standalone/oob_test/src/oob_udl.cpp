@@ -158,9 +158,14 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
       // Poll the local flag until dist_size reached
       volatile std::uint64_t* flag64_ptr = static_cast<std::uint64_t*>(flag_mr_ptr);
       int my_node_id = client.get_my_id();
-      const int dist_size = 2'500;
+      const int dist_size = 5000;
 
-      // std::thread([flag64_ptr, my_node_id, dist_size]{
+      std::thread([flag64_ptr, my_node_id, dist_size]{
+				cpu_set_t set;
+  			CPU_ZERO(&set);
+  			CPU_SET(8, &set);
+  			pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
+				pthread_setname_np(pthread_self(), "OOB_RECV_FLAG_POLL_LOOP");
 				uint64_t consume_flag = 0;
 				while (consume_flag < dist_size){
 					// std::uint64_t current_flag = __atomic_load_n(flag64_ptr, __ATOMIC_ACQUIRE);
@@ -171,7 +176,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
         } 
           TimestampLogger::flush("recv_oobwrite_timestamp.dat");
           std::cout << "Flushed logs to recv_oobwrite_timestamp.dat" << std::endl;
-			// }).detach();
+			}).detach();
 
 		}
     else if (tokens[1] == "oob_write"){
@@ -189,10 +194,14 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 			const int local_dist_size = 2500;
 
       int my_node_id = client.get_my_id();
-     	const int dist_size = 2'500;
+     	const int dist_size = 5000;
 
-			// std::thread([ctx_ptr, payload, send_flag_ptr, src_buf, local_buf_size, my_node_id, local_dist_size]{
-				
+			std::thread([ctx_ptr, payload, send_flag_ptr, src_buf, local_buf_size, my_node_id, local_dist_size]{
+				cpu_set_t set;
+  			CPU_ZERO(&set);
+  			CPU_SET(8, &set);
+  			pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
+				pthread_setname_np(pthread_self(), "OOB_WRITE_LOOP");
 				auto& client = ctx_ptr->get_service_client_ref();
       	for (int i = 0; i < dist_size; ++i){
       		// Update local flag value then write it to the remote flag
@@ -210,6 +219,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 							90000
 						);
 					}
+					// std::this_thread::sleep_for(200us);
 					TimestampLogger::log(LOG_OOBWRITE_SEND, my_node_id, *send_flag_ptr);
         	// Write buffer → remote data
         	client.template oob_memwrite<VolatileCascadeStoreWithStringKey>(
@@ -237,7 +247,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
      		}
       	TimestampLogger::flush("send_oobwrite_timestamp.dat");
       	std::cout << "Flushed logs to send_oobwrite_timestamp.dat" << std::endl;
-			// }).detach();
+			}).detach();
 		}
     else {
 				std::cout << "Unsupported oob operation called!" << std::endl;

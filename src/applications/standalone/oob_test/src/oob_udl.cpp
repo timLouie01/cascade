@@ -158,7 +158,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
       // Poll the local flag until dist_size reached
       volatile std::uint64_t* flag64_ptr = static_cast<std::uint64_t*>(flag_mr_ptr);
       int my_node_id = client.get_my_id();
-      const int dist_size = 5000;
+      const int dist_size = 10000;
 
       std::thread([flag64_ptr, my_node_id, dist_size]{
 				cpu_set_t set;
@@ -194,10 +194,10 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 
 			auto* ctx_ptr = typed_ctxt;
 			const int local_node_id = ctx_ptr->get_service_client_ref().get_my_id();
-			const int local_dist_size = 2500;
+			const int local_dist_size = 10000;
 
       int my_node_id = client.get_my_id();
-     	const int dist_size = 5000;
+     	const int dist_size = 10000;
 
 			std::thread([ctx_ptr, payload, send_flag_ptr, src_buf, local_buf_size, my_node_id, local_dist_size]{
 				cpu_set_t set;
@@ -225,7 +225,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 							90000
 						);
 					}
-					// std::this_thread::sleep_for(200us);
+					std::this_thread::sleep_for(200us);
 					TimestampLogger::log(LOG_OOBWRITE_SEND, my_node_id, *send_flag_ptr);
         	// Write buffer → remote data
         	client.template oob_memwrite<VolatileCascadeStoreWithStringKey>(

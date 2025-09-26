@@ -163,7 +163,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
       std::thread([flag64_ptr, my_node_id, dist_size]{
 				cpu_set_t set;
   			CPU_ZERO(&set);
-  			CPU_SET(8, &set);
+  			CPU_SET(9, &set);
   			pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
 				sched_param sp{};
     		sp.sched_priority = 99;
@@ -202,7 +202,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 			std::thread([ctx_ptr, payload, send_flag_ptr, src_buf, local_buf_size, my_node_id, local_dist_size]{
 				cpu_set_t set;
   			CPU_ZERO(&set);
-  			CPU_SET(8, &set);
+  			CPU_SET(9, &set);
   			pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
 				sched_param sp{};
     		sp.sched_priority = 99;
@@ -225,7 +225,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 							90000
 						);
 					}
-					std::this_thread::sleep_for(200us);
+					// std::this_thread::sleep_for(200us);
 					TimestampLogger::log(LOG_OOBWRITE_SEND, my_node_id, *send_flag_ptr);
         	// Write buffer → remote data
         	client.template oob_memwrite<VolatileCascadeStoreWithStringKey>(

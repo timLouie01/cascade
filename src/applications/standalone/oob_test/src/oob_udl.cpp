@@ -5,6 +5,7 @@
 #include <sys/mman.h>
 #include <thread>
 #include <chrono>
+#include <numa.h>
 #include <immintrin.h>
 #ifndef LOG_OOBWRITE_RECV
 #define LOG_OOBWRITE_RECV 7006
@@ -73,7 +74,8 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
                                             bool for_flag, 
 																						bool gpu) {
         const size_t align = CACHELINE;
-        void* p = aligned_alloc(align, num_bytes);
+        // void* p = aligned_alloc(align, num_bytes);
+				void* p = numa_alloc_local(num_bytes);
         if (!p) throw std::bad_alloc();
         if (is_sender_side){
 					warm_and_lock_send(p, num_bytes);

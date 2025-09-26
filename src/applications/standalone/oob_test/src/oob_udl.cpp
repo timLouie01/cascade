@@ -123,8 +123,18 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
       buff_size = 5120ull;
 
       // buffer: 1 MiB
-    	buff_mr_ptr = alloc_warm_register(client, buff_size,true,false,false);
-      flag_mr_ptr = alloc_warm_register(client, CACHELINE, true, true,false);
+			std::thread([&]{
+				cpu_set_t set;
+  			CPU_ZERO(&set);
+  			CPU_SET(9, &set);
+  			pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
+				sched_param sp{};
+    		sp.sched_priority = 99;
+    		pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp);
+				pthread_setname_np(pthread_self(), "OOB_RECV_FLAG_POLL_LOOP");
+    		buff_mr_ptr = alloc_warm_register(client, buff_size,true,false,false);
+      	flag_mr_ptr = alloc_warm_register(client, CACHELINE, true, true,false);
+			}).join();
 
     	// Notify peer to set up
       Blob empty_blob;
@@ -135,10 +145,17 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 		// Receiver
     	const size_t MiB = 1024ull * 1024ull;
       buff_size = 5120ull;
-
-      buff_mr_ptr = alloc_warm_register(client, buff_size, false, false,false);
-      flag_mr_ptr = alloc_warm_register(client, CACHELINE, false, true,false);
-
+			std::thread([&]{
+				cpu_set_t set;
+  			CPU_ZERO(&set);
+  			CPU_SET(9, &set);
+  			pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
+				sched_param sp{};
+    		sp.sched_priority = 99;
+     	 	buff_mr_ptr = alloc_warm_register(client, buff_size, false, false,false);
+      	flag_mr_ptr = alloc_warm_register(client, CACHELINE, false, true,false);
+			}).join();		
+			
       const uint64_t data_addr = reinterpret_cast<uint64_t>(buff_mr_ptr);
       const uint64_t data_rkey = client.oob_rkey(buff_mr_ptr);
 

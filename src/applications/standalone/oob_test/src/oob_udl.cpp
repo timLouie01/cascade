@@ -74,8 +74,8 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
                                             bool for_flag, 
 																						bool gpu) {
         const size_t align = CACHELINE;
-        // void* p = aligned_alloc(align, num_bytes);
-				void* p = numa_alloc_local(num_bytes);
+        void* p = aligned_alloc(align, num_bytes);
+				// void* p = numa_alloc_local(num_bytes);
         if (!p) throw std::bad_alloc();
         if (is_sender_side){
 					warm_and_lock_send(p, num_bytes);

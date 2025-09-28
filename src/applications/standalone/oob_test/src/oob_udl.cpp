@@ -244,7 +244,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 					// 		90000
 					// 	);
 					// }
-					std::this_thread::sleep_for(20us);
+					// std::this_thread::sleep_for(35us);
 					TimestampLogger::log(LOG_OOBWRITE_SEND, my_node_id, *send_flag_ptr);
         	// Write buffer → remote data
         	client.template oob_memwrite<VolatileCascadeStoreWithStringKey>(

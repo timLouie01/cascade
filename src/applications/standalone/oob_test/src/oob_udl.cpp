@@ -32,18 +32,24 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 	/**
 		State
 	 */ 
-	void* buff_mr_ptr = nullptr;
-	void* flag_mr_ptr = nullptr;
+	void* buff_mr_ptr_1 = nullptr;
+	void* buff_mr_ptr_2 = nullptr;
+	void* flag_mr_ptr_1 = nullptr;
+	void* flag_mr_ptr_2 = nullptr;
 	uint64_t buff_size = 0;
 	
 	/**
 		Payload
 	*/
 	struct Payload {
-	  uint64_t data_addr;
-	  uint64_t data_rkey;
-	  uint64_t flag_addr;
-	  uint64_t flag_rkey;
+	  uint64_t data_addr_1;
+	  uint64_t data_rkey_1;
+	  uint64_t flag_addr_1;
+	  uint64_t flag_rkey_1;
+		uint64_t data_addr_2;
+	  uint64_t data_rkey_2;
+	  uint64_t flag_addr_2;
+	  uint64_t flag_rkey_2;
 	  uint32_t dest; // node id that owns the remote MRs
   };
 
@@ -134,8 +140,10 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
     		sp.sched_priority = 99;
     		pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp);
 				pthread_setname_np(pthread_self(), "OOB_RECV_FLAG_POLL_LOOP");
-    		buff_mr_ptr = alloc_warm_register(client, buff_size,true,false,false);
-      	flag_mr_ptr = alloc_warm_register(client, CACHELINE, true, true,false);
+    		buff_mr_ptr_1 = alloc_warm_register(client, buff_size,true,false,false);
+      	flag_mr_ptr_1 = alloc_warm_register(client, CACHELINE, true, true,false);
+				// buff_mr_ptr_2 = alloc_warm_register(client, buff_size,true,false,false);
+      	// flag_mr_ptr_2 = alloc_warm_register(client, CACHELINE, true, true,false);
 			}).join();
 
     	// Notify peer to set up
@@ -154,32 +162,41 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
   			pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
 				sched_param sp{};
     		sp.sched_priority = 99;
-     	 	buff_mr_ptr = alloc_warm_register(client, buff_size, false, false,false);
-      	flag_mr_ptr = alloc_warm_register(client, CACHELINE, false, true,false);
+     	 	buff_mr_ptr_1 = alloc_warm_register(client, buff_size, false, false,false);
+      	flag_mr_ptr_1 = alloc_warm_register(client, CACHELINE, false, true,false);
+				buff_mr_ptr_2 = alloc_warm_register(client, buff_size, false, false,false);
+      	flag_mr_ptr_2 = alloc_warm_register(client, CACHELINE, false, true,false);
 			}).join();		
 			
-      const uint64_t data_addr = reinterpret_cast<uint64_t>(buff_mr_ptr);
-      const uint64_t data_rkey = client.oob_rkey(buff_mr_ptr);
+      const uint64_t data_addr_1 = reinterpret_cast<uint64_t>(buff_mr_ptr_1);
+      const uint64_t data_rkey_1 = client.oob_rkey(buff_mr_ptr_1);
 
-      const uint64_t flag_addr = reinterpret_cast<uint64_t>(flag_mr_ptr);
-      const uint64_t flag_rkey = client.oob_rkey(flag_mr_ptr);
+      const uint64_t flag_addr_1 = reinterpret_cast<uint64_t>(flag_mr_ptr_1);
+      const uint64_t flag_rkey_1 = client.oob_rkey(flag_mr_ptr_1);
+
+			const uint64_t data_addr_2 = reinterpret_cast<uint64_t>(buff_mr_ptr_2);
+      const uint64_t data_rkey_2 = client.oob_rkey(buff_mr_ptr_2);
+
+      const uint64_t flag_addr_2 = reinterpret_cast<uint64_t>(flag_mr_ptr_2);
+      const uint64_t flag_rkey_2 = client.oob_rkey(flag_mr_ptr_2);
 
       const uint32_t dest = client.get_my_id();
 
             // std::cout << "DATA rkey=" << data_rkey << " @ " << data_addr << std::endl;
             // std::cout << "FLAG rkey=" << flag_rkey << " @ " << flag_addr << " (initialized to 0)" << std::endl;
 
-      Payload payload{data_addr, data_rkey, flag_addr, flag_rkey, dest};
+      Payload payload{data_addr_1, data_rkey_1, flag_addr_1, flag_rkey_1,data_addr_2,data_rkey_2,flag_addr_2,flag_rkey_2,dest};
       Blob blob(reinterpret_cast<const uint8_t*>(&payload), sizeof(payload));
     	ObjectWithStringKey obj("oob/oob_write", blob);
       client.put_and_forget<VolatileCascadeStoreWithStringKey>(obj, 0, 0);
 
       // Poll the local flag until dist_size reached
-      volatile std::uint64_t* flag64_ptr = static_cast<std::uint64_t*>(flag_mr_ptr);
+      volatile std::uint64_t* flag_1 = static_cast<std::uint64_t*>(flag_mr_ptr_1);
+			volatile std::uint64_t* flag_2 = static_cast<std::uint64_t*>(flag_mr_ptr_2);
       int my_node_id = client.get_my_id();
       const int dist_size = 50000;
 
-      std::thread([flag64_ptr, my_node_id, dist_size]{
+      std::thread([&]{
 				cpu_set_t set;
   			CPU_ZERO(&set);
   			CPU_SET(9, &set);
@@ -187,14 +204,32 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 				sched_param sp{};
     		sp.sched_priority = 99;
     		pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp);
-				pthread_setname_np(pthread_self(), "OOB_RECV_FLAG_POLL_LOOP");
+				pthread_setname_np(pthread_self(), "OOB_RECV_LOOP");
 				uint64_t consume_flag = 0;
+				int number = 1;
+				volatile std::uint64_t* current_flag = flag_1;
+
 				while (consume_flag < dist_size){
 					// std::uint64_t current_flag = __atomic_load_n(flag64_ptr, __ATOMIC_ACQUIRE);
-        	if (*flag64_ptr > consume_flag){
-						TimestampLogger::log(LOG_OOBWRITE_RECV, my_node_id, *flag64_ptr);
-						consume_flag = static_cast<uint64_t>(*flag64_ptr);
-					}
+					// if (number == 1){
+						if (*current_flag > consume_flag){
+							TimestampLogger::log(LOG_OOBWRITE_RECV, my_node_id, *current_flag);
+							consume_flag = static_cast<uint64_t>(*current_flag);
+							if (number == 1){
+								current_flag = flag_2;
+							}else{
+								current_flag = flag_1;
+							}
+							// consume_flag = static_cast<uint64_t>(*flag_1);
+						}
+					// }
+					// else {
+					// 	if (*flag_2 > consume_flag){
+					// 		TimestampLogger::log(LOG_OOBWRITE_RECV, my_node_id, *flag_2);
+					// 		number = 1;
+					// 		consume_flag = static_cast<uint64_t>(*flag_2);
+					// 	}
+					// }
         } 
           TimestampLogger::flush("recv_oobwrite_timestamp.dat");
           std::cout << "Flushed logs to recv_oobwrite_timestamp.dat" << std::endl;
@@ -207,18 +242,15 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
     	const Payload payload = *reinterpret_cast<const Payload*>(object->blob.bytes);
 
       // Local
-			auto* send_flag_ptr   = static_cast<std::uint64_t*>(this->flag_mr_ptr);
-			auto* src_buf         = static_cast<std::uint8_t*>(this->buff_mr_ptr);
+			auto* send_flag_ptr   = static_cast<std::uint64_t*>(this->flag_mr_ptr_1);
+			auto* src_buf_1  = static_cast<std::uint8_t*>(this->buff_mr_ptr_1);
 			const std::size_t local_buf_size = this->buff_size;
 
 			auto* ctx_ptr = typed_ctxt;
 			const int local_node_id = ctx_ptr->get_service_client_ref().get_my_id();
 			const int local_dist_size = 50000;
 
-      int my_node_id = client.get_my_id();
-     	const int dist_size = 50000;
-
-			std::thread([ctx_ptr, payload, send_flag_ptr, src_buf, local_buf_size, my_node_id, local_dist_size]{
+			std::thread([&]{
 				cpu_set_t set;
   			CPU_ZERO(&set);
   			CPU_SET(9, &set);
@@ -228,7 +260,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
     		pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp);
 				pthread_setname_np(pthread_self(), "OOB_WRITE_LOOP");
 				auto& client = ctx_ptr->get_service_client_ref();
-      	for (int i = 0; i < dist_size; ++i){
+      	for (int i = 0; i < local_dist_size; ++i){
       		// Update local flag value then write it to the remote flag
         	*send_flag_ptr = static_cast<std::uint64_t>(i+1);
         
@@ -245,30 +277,57 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 					// 	);
 					// }
 					// std::this_thread::sleep_for(35us);
-					TimestampLogger::log(LOG_OOBWRITE_SEND, my_node_id, *send_flag_ptr);
+					TimestampLogger::log(LOG_OOBWRITE_SEND, local_node_id, *send_flag_ptr);
         	// Write buffer → remote data
-        	client.template oob_memwrite<VolatileCascadeStoreWithStringKey>(
-        		payload.data_addr,
-          	payload.dest,
-          	payload.data_rkey,
-          	local_buf_size,
-          	false,
-          	reinterpret_cast<uint64_t>(src_buf),
-          	false,
-          	false
-        	);
+					if (i % 2 == 0){
+						client.template oob_memwrite<VolatileCascadeStoreWithStringKey>(
+							payload.data_addr_1,
+							payload.dest,
+							payload.data_rkey_1,
+							local_buf_size,
+							false,
+							reinterpret_cast<uint64_t>(src_buf_1),
+							false,
+							false					
+							);
 
-        	// Write flag to remote flag
-        	client.template oob_memwrite<VolatileCascadeStoreWithStringKey>(
-          	payload.flag_addr,
-          	payload.dest,
-        		payload.flag_rkey,
-        		sizeof(std::uint64_t),
-        		false,
-          	reinterpret_cast<uint64_t>(send_flag_ptr),
-          	false,
-          	false
-        	);
+				    // Write flag to remote flag
+						client.template oob_memwrite<VolatileCascadeStoreWithStringKey>(
+							payload.flag_addr_1,
+							payload.dest,
+							payload.flag_rkey_1,
+							sizeof(std::uint64_t),
+							false,
+							reinterpret_cast<uint64_t>(send_flag_ptr),
+							false,
+							false
+							);
+					}else{
+						client.template oob_memwrite<VolatileCascadeStoreWithStringKey>(
+							payload.data_addr_2,
+							payload.dest,
+							payload.data_rkey_2,
+							local_buf_size,
+							false,
+							reinterpret_cast<uint64_t>(src_buf_1),
+							false,
+							false					
+							);
+
+				    // Write flag to remote flag
+						client.template oob_memwrite<VolatileCascadeStoreWithStringKey>(
+							payload.flag_addr_2,
+							payload.dest,
+							payload.flag_rkey_2,
+							sizeof(std::uint64_t),
+							false,
+							reinterpret_cast<uint64_t>(send_flag_ptr),
+							false,
+							false
+							);
+					}
+
+        	
      		}
       	TimestampLogger::flush("send_oobwrite_timestamp.dat");
       	std::cout << "Flushed logs to send_oobwrite_timestamp.dat" << std::endl;

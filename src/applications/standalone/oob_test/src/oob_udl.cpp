@@ -196,7 +196,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
       int my_node_id = client.get_my_id();
       const int dist_size = 50000;
 
-      std::thread([&]{
+      std::thread([=]{
 				cpu_set_t set;
   			CPU_ZERO(&set);
   			CPU_SET(9, &set);
@@ -217,8 +217,10 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 							consume_flag = static_cast<uint64_t>(*current_flag);
 							if (number == 1){
 								current_flag = flag_2;
+								number = 2;
 							}else{
 								current_flag = flag_1;
+								number = 1;
 							}
 							// consume_flag = static_cast<uint64_t>(*flag_1);
 						}
@@ -250,7 +252,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 			const int local_node_id = ctx_ptr->get_service_client_ref().get_my_id();
 			const int local_dist_size = 50000;
 
-			std::thread([&]{
+			std::thread([=]{
 				cpu_set_t set;
   			CPU_ZERO(&set);
   			CPU_SET(9, &set);
@@ -326,7 +328,6 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 							false
 							);
 					}
-
         	
      		}
       	TimestampLogger::flush("send_oobwrite_timestamp.dat");

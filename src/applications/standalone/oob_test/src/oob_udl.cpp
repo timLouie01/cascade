@@ -278,7 +278,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 							90000
 						);
 					}
-					// std::this_thread::sleep_for(35us);
+					std::this_thread::sleep_for(20us);
 					TimestampLogger::log(LOG_OOBWRITE_SEND, local_node_id, *send_flag_ptr);
         	// Write buffer → remote data
 					if (i % 2 == 0){

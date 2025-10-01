@@ -265,8 +265,10 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
       	for (int i = 0; i < local_dist_size; ++i){
       		// Update local flag value then write it to the remote flag
         	*send_flag_ptr = static_cast<std::uint64_t>(i+1);
-        
+
+					
 					if (i != 0){
+						TimestampLogger::log(8000, local_node_id, *send_flag_ptr-1);
 						client.template wait_for_oob_op<VolatileCascadeStoreWithStringKey>(
 							payload.dest,
 							1,
@@ -278,7 +280,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 							90000
 						);
 					}
-					std::this_thread::sleep_for(20us);
+					// std::this_thread::sleep_for(35us);
 					TimestampLogger::log(LOG_OOBWRITE_SEND, local_node_id, *send_flag_ptr);
         	// Write buffer → remote data
 					if (i % 2 == 0){

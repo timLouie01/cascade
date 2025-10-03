@@ -34,6 +34,8 @@
 #include <unordered_set>
 #include <utility>
 #include <derecho/conf/conf.hpp>
+#include <atomic>
+#include "oob_buffer.hpp"
 #include "cascade.hpp"
 #include "utils.hpp"
 #include "object_pool_metadata.hpp"
@@ -887,8 +889,42 @@ namespace cascade {
 	void oob_register_mem_ex(void* addr, size_t size, const memory_attribute_t& attr);
 	
 	void oob_deregister_mem(void* addr);
-       	
+
+
 	uint64_t oob_rkey(void* addr);	
+
+    struct Buffer {
+        uint64_t buffer;
+        uint64_t buffer_rkey;
+    };
+    struct Tail{
+        uint64_t tail;
+        uint64_t tail_rkey;
+    };
+    struct Head {
+        uint64_t head;
+        uint64_t head_rkey;
+    };
+    // spawns send buffer and sending thread
+    std::unique_ptr<oob_send_buffer<CascadeTypes...>> oob_send_buff_create(const node_id_t remote_node,const std::string& recv_udl, uint64_t bytes_alloc);
+
+    std::pair<Buffer,Tail> oob_recv_get_info(std::unique_ptr<oob_recv_buffer<CascadeTypes...>>& recv_buf);
+
+    Tail oob_send_get_info(std::unique_ptr<oob_send_buffer<CascadeTypes...>>& send_buf);
+
+    void oob_send_connect(std::unique_ptr<oob_send_buffer<CascadeTypes...>>& send_buf, uint64_t buffer_addr, uint64_t tail_addr, std::uint64_t buff_r_key, std::uint64_t tail_r_key);
+
+    void oob_recv_connect(std::unique_ptr<oob_recv_buffer<CascadeTypes...>>& recv_buf, uint64_t head_addr,  std::uint64_t head_r_key);
+
+    void oob_send_start(std::unique_ptr<oob_send_buffer<CascadeTypes...>>& send_buf);
+
+    void oob_recv_start(std::unique_ptr<oob_recv_buffer<CascadeTypes...>>& recv_buf);
+
+    void oob_buff_write (uint64_t local_addr, size_t size, bool local_gpu, std::unique_ptr<oob_send_buffer<CascadeTypes...>>& send_buff);
+    
+    // spawns recv buffer and receiving thread
+    std::unique_ptr<oob_recv_buffer<CascadeTypes...>>  oob_recv_buff_create(const node_id_t remote_node,const std::string& recv_udl, uint64_t bytes_alloc);
+
 
     public:
         /**

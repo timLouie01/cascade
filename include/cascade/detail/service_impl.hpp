@@ -853,6 +853,92 @@ uint64_t ServiceClient<CascadeTypes...>::oob_rkey(void* addr){
 		return	group_ptr->get_oob_memory_key(addr);
 }
 
+template <typename... CascadeTypes> 
+std::unique_ptr<oob_send_buffer<CascadeTypes...>> ServiceClient<CascadeTypes...>::oob_send_buff_create(const node_id_t remote_node,const std::string& recv_udl, uint64_t bytes_alloc){
+    const size_t align = 64;
+    void* p = aligned_alloc(align, bytes_alloc);
+    void* h = aligned_alloc(align, sizeof(std::uint64_t));
+    void* t = aligned_alloc(align, sizeof(std::uint64_t));
+    void* local_head = aligned_alloc(align, sizeof(std::uint64_t));
+    void* local_tail = aligned_alloc(align, sizeof(std::uint64_t));
+    derecho::memory_attribute_t attr;
+    attr.type = derecho::memory_attribute_t::SYSTEM;
+    std::uint64_t buff = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(p));
+    std::uint64_t head = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(p));
+    std::uint64_t tail = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(p));
+    this->oob_register_mem_ex(buff,bytes_alloc,attr);
+    this->oob_register_mem_ex(head,sizeof(std::uint64_t),attr);
+    this->oob_register_mem_ex(tail,sizeof(std::uint64_t),attr);
+    auto b = oob_send_buffer<CascadeTypes...>::create(buff, head, tail, remote_node, recv_udl,bytes_alloc,this->oob_rkey(t),*this);
+    return b;
+}
+
+template <typename... CascadeTypes> 
+std::unique_ptr<oob_recv_buffer<CascadeTypes...>> ServiceClient<CascadeTypes...>::oob_recv_buff_create(const node_id_t remote_node,const std::string& recv_udl, uint64_t bytes_alloc){
+    const size_t align = 64; // Typical cache line size
+    void* p = aligned_alloc(align, bytes_alloc);
+    void* h = aligned_alloc(align, sizeof(std::uint64_t));
+    void* t = aligned_alloc(align, sizeof(std::uint64_t));
+    derecho::memory_attribute_t attr;
+    attr.type = derecho::memory_attribute_t::SYSTEM;
+    std::uint64_t buff = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(p));
+    std::uint64_t head = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(p));
+    std::uint64_t tail = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(p));
+    this->oob_register_mem_ex(buff,bytes_alloc,attr);
+    this->oob_register_mem_ex(head,sizeof(std::uint64_t),attr);
+    this->oob_register_mem_ex(tail,sizeof(std::uint64_t),attr);
+    auto b = oob_recv_buffer<CascadeTypes...>::create(buff, head, tail, remote_node, recv_udl,bytes_alloc,this->oob_rkey(p),this->oob_rkey(h),*this);
+    return b;
+}
+template <typename... CascadeTypes> 
+std::pair<typename ServiceClient<CascadeTypes...>::Buffer,typename ServiceClient<CascadeTypes...>::Tail> ServiceClient<CascadeTypes...>::oob_recv_get_info(std::unique_ptr<oob_recv_buffer<CascadeTypes...>>& recv_buf){
+    return { Buffer{recv_buf->buff, recv_buf->r_key_buff}, Tail{recv_buf->tail,recv_buf->r_key_tail_copy}};
+}
+template <typename... CascadeTypes>
+typename ServiceClient<CascadeTypes...>::Tail ServiceClient<CascadeTypes...>::oob_send_get_info(std::unique_ptr<oob_send_buffer<CascadeTypes...>>& send_buf){
+    return Tail{send_buf->tail, send_buf->tail_r_key};
+}
+template <typename... CascadeTypes> 
+void ServiceClient<CascadeTypes...>::oob_buff_write (uint64_t local_addr, size_t size, bool local_gpu, std::unique_ptr<oob_send_buffer<CascadeTypes...>>& send_buff){
+    void* src = reinterpret_cast<void*>(local_addr);
+    
+    if (local_gpu){
+        #ifdef USE_CUDA
+        cudaError_t st = cudaMemcpy(send_buff->tail, src, size, cudaMemcpyDefault);
+        if (st != cudaSuccess) {
+            throw std::runtime_error(std::string("cudaMemcpy failed: ")
+                                     + cudaGetErrorString(st));
+        }
+    #else
+        throw std::logic_error("oob_buff_write: built without CUDA (USE_CUDA not defined), "
+                               "but local_gpu=true was passed.");
+    #endif
+    }else{
+        // TODO Fix overlap
+        std::memcpy(reinterpret_cast<void*>(send_buff->get_write_location()), src, size);
+    }
+
+    send_buff->advance_tail(size);
+}
+template <typename... CascadeTypes> 
+void ServiceClient<CascadeTypes...>::oob_send_connect(std::unique_ptr<oob_send_buffer<CascadeTypes...>>& send_buf, uint64_t buffer_addr, uint64_t tail_addr, std::uint64_t buff_r_key, std::uint64_t tail_r_key){
+    send_buf->setup_connection(buffer_addr, tail_addr, buff_r_key, tail_r_key);
+}
+template <typename... CascadeTypes>
+void ServiceClient<CascadeTypes...>::oob_recv_connect(std::unique_ptr<oob_recv_buffer<CascadeTypes...>>& recv_buf, uint64_t head_addr,  std::uint64_t head_r_key){
+    recv_buf->setup_connection(head_addr, head_r_key);
+}
+
+template <typename... CascadeTypes>
+void ServiceClient<CascadeTypes...>::oob_send_start(std::unique_ptr<oob_send_buffer<CascadeTypes...>>& send_buf){
+    send_buf->start();
+}
+
+template <typename... CascadeTypes>
+void ServiceClient<CascadeTypes...>::oob_recv_start(std::unique_ptr<oob_recv_buffer<CascadeTypes...>>& recv_buf){
+    recv_buf->start();
+}
+
 template <typename... CascadeTypes>
 template <typename ObjectType>
 derecho::rpc::QueryResults<void> ServiceClient<CascadeTypes...>::trigger_put(

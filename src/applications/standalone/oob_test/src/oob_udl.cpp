@@ -134,7 +134,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 			std::thread([&]{
 				cpu_set_t set;
   			CPU_ZERO(&set);
-  			CPU_SET(9, &set);
+  			// CPU_SET(9, &set);
   			pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
 				sched_param sp{};
     		sp.sched_priority = 99;
@@ -158,7 +158,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 			std::thread([&]{
 				cpu_set_t set;
   			CPU_ZERO(&set);
-  			CPU_SET(9, &set);
+  			// CPU_SET(9, &set);
   			pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
 				sched_param sp{};
     		sp.sched_priority = 99;
@@ -199,7 +199,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
       std::thread([=]{
 				cpu_set_t set;
   			CPU_ZERO(&set);
-  			CPU_SET(9, &set);
+  			// CPU_SET(9, &set);
   			pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
 				sched_param sp{};
     		sp.sched_priority = 99;
@@ -255,7 +255,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 			std::thread([=]{
 				cpu_set_t set;
   			CPU_ZERO(&set);
-  			CPU_SET(9, &set);
+  			// CPU_SET(9, &set);
   			pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
 				sched_param sp{};
     		sp.sched_priority = 99;

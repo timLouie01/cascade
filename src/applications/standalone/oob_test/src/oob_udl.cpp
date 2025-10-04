@@ -28,6 +28,14 @@ std::string get_description() {
     return MY_DESC;
 }
 
+static inline void unpin_to_all_system_cpus() {
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    long n = sysconf(_SC_NPROCESSORS_CONF);
+    for (long i = 0; i < n; ++i) CPU_SET(i, &set);
+    pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
+}
+
 class OOBOCDPO: public OffCriticalDataPathObserver {
 	/**
 		State
@@ -55,6 +63,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 
 	// helper functions
 	static constexpr size_t CACHELINE = 64;
+
 
 	static inline void warm_and_lock(void* p, size_t len, char data) {
     	(void) mlock(p, len);
@@ -132,10 +141,11 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 
       // buffer: 1 MiB
 			std::thread([&]{
-				cpu_set_t set;
-  			CPU_ZERO(&set);
+				unpin_to_all_system_cpus();
+				// cpu_set_t set;
+  			// CPU_ZERO(&set);
   			// CPU_SET(9, &set);
-  			pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
+  			// pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
 				sched_param sp{};
     		sp.sched_priority = 99;
     		pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp);
@@ -156,10 +166,11 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
     	const size_t MiB = 1024ull * 1024ull;
       buff_size = 5120ull;
 			std::thread([&]{
-				cpu_set_t set;
-  			CPU_ZERO(&set);
+				unpin_to_all_system_cpus();
+				// cpu_set_t set;
+  			// CPU_ZERO(&set);
   			// CPU_SET(9, &set);
-  			pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
+  			// pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
 				sched_param sp{};
     		sp.sched_priority = 99;
      	 	buff_mr_ptr_1 = alloc_warm_register(client, buff_size, false, false,false);
@@ -197,10 +208,11 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
       const int dist_size = 50000;
 
       std::thread([=]{
-				cpu_set_t set;
-  			CPU_ZERO(&set);
+				unpin_to_all_system_cpus();
+				// cpu_set_t set;
+  			// CPU_ZERO(&set);
   			// CPU_SET(9, &set);
-  			pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
+  			// pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
 				sched_param sp{};
     		sp.sched_priority = 99;
     		pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp);
@@ -253,10 +265,11 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 			const int local_dist_size = 50000;
 
 			std::thread([=]{
-				cpu_set_t set;
-  			CPU_ZERO(&set);
+				unpin_to_all_system_cpus();
+				// cpu_set_t set;
+  			// CPU_ZERO(&set);
   			// CPU_SET(9, &set);
-  			pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
+  			// pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
 				sched_param sp{};
     		sp.sched_priority = 99;
     		pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp);

@@ -205,7 +205,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
       volatile std::uint64_t* flag_1 = static_cast<std::uint64_t*>(flag_mr_ptr_1);
 			volatile std::uint64_t* flag_2 = static_cast<std::uint64_t*>(flag_mr_ptr_2);
       int my_node_id = client.get_my_id();
-      const int dist_size = 50000;
+      const int dist_size = 500000;
 
       std::thread([=]{
 				unpin_to_all_system_cpus();
@@ -262,7 +262,7 @@ class OOBOCDPO: public OffCriticalDataPathObserver {
 
 			auto* ctx_ptr = typed_ctxt;
 			const int local_node_id = ctx_ptr->get_service_client_ref().get_my_id();
-			const int local_dist_size = 50000;
+			const int local_dist_size = 500000;
 
 			std::thread([=]{
 				unpin_to_all_system_cpus();

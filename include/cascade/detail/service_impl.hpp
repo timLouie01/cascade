@@ -912,8 +912,55 @@ std::unique_ptr<oob_recv_buffer<CascadeTypes...>> ServiceClient<CascadeTypes...>
     oob_register_mem_ex(tail, sizeof(uint64_t),attr);
     
     auto recv_buff = oob_recv_buffer<CascadeTypes...>::create(buffer, head, tail, remote_node, send_udl, bytes_alloc, *this);
-    recv_buff->start();
+    recv_buff->start();  // Use default (no pinning) - user can call oob_recv_start() later with specific core
     return recv_buff;
+}
+
+// OOB buffer control methods
+template <typename... CascadeTypes>
+void ServiceClient<CascadeTypes...>::oob_send_start(std::unique_ptr<oob_send_buffer<CascadeTypes...>>& send_buf) {
+    send_buf->start();
+}
+
+template <typename... CascadeTypes>
+void ServiceClient<CascadeTypes...>::oob_recv_start(std::unique_ptr<oob_recv_buffer<CascadeTypes...>>& recv_buf, int cpu_core) {
+    recv_buf->start(cpu_core);
+}
+
+template <typename... CascadeTypes>
+void ServiceClient<CascadeTypes...>::oob_send_connect(std::unique_ptr<oob_send_buffer<CascadeTypes...>>& send_buf, 
+                                                      uint64_t buffer_addr, uint64_t tail_addr, 
+                                                      std::uint64_t buff_r_key, std::uint64_t tail_r_key) {
+    send_buf->setup_connection(buffer_addr, tail_addr, buff_r_key, tail_r_key);
+}
+
+template <typename... CascadeTypes>
+void ServiceClient<CascadeTypes...>::oob_recv_connect(std::unique_ptr<oob_recv_buffer<CascadeTypes...>>& recv_buf, 
+                                                      uint64_t head_addr, std::uint64_t head_r_key) {
+    recv_buf->setup_connection(head_addr, head_r_key);
+}
+
+template <typename... CascadeTypes>
+std::pair<typename ServiceClient<CascadeTypes...>::Buffer, typename ServiceClient<CascadeTypes...>::Tail> 
+ServiceClient<CascadeTypes...>::oob_recv_get_info(std::unique_ptr<oob_recv_buffer<CascadeTypes...>>& recv_buf) {
+    Buffer buffer_info;
+    buffer_info.buffer = recv_buf->get_buff();
+    buffer_info.buffer_rkey = recv_buf->get_r_key_buff();
+    
+    Tail tail_info;
+    tail_info.tail = recv_buf->get_tail();
+    tail_info.tail_rkey = recv_buf->get_r_key_tail_copy();
+    
+    return std::make_pair(buffer_info, tail_info);
+}
+
+template <typename... CascadeTypes>
+typename ServiceClient<CascadeTypes...>::Head 
+ServiceClient<CascadeTypes...>::oob_send_get_info(std::unique_ptr<oob_send_buffer<CascadeTypes...>>& send_buf) {
+    Head head_info;
+    head_info.head = send_buf->get_head();
+    head_info.head_rkey = send_buf->get_head_r_key();
+    return head_info;
 }
 template <typename... CascadeTypes>
 template <typename ObjectType>

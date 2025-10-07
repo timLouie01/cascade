@@ -101,7 +101,7 @@ public:
     ~oob_recv_buffer();
     void setup_connection(uint64_t head_addr, std::uint64_t head_r_key);
 
-    void start();
+    void start(int cpu_core = -1);  // -1 means no CPU pinning, >=0 pins to that core
     void stop();
     
     // Subscriber interface - two modes
@@ -129,6 +129,9 @@ private:
   ServiceClient<CascadeTypes...>& service_client;
   std::thread receiving_thread;
   std::atomic<bool> stop_flag{false};
+  
+  // CPU affinity
+  int cpu_core_id{-1};  // -1 means no pinning, >=0 means pin to that core
   
   // Subscriber state
   SubscriptionMode subscription_mode;

@@ -2,6 +2,8 @@
 #include <thread>
 #include <chrono>
 #include <algorithm>
+#include <pthread.h>
+#include <immintrin.h>
 #include "cascade/utils.hpp"
 #ifdef USE_CUDA
 #include <cuda_runtime.h>
@@ -235,8 +237,9 @@ inline oob_recv_buffer<CascadeTypes...>::~oob_recv_buffer() {
 }
 
 template<typename... CascadeTypes>
-inline void oob_recv_buffer<CascadeTypes...>::start() {
+inline void oob_recv_buffer<CascadeTypes...>::start(int cpu_core) {
     if (receiving_thread.joinable()) return;
+    cpu_core_id = cpu_core;  // Store the core to pin to
     stop_flag.store(0, std::memory_order_release);          
     receiving_thread = std::thread(&oob_recv_buffer<CascadeTypes...>::run_recv, this);
 }
@@ -250,6 +253,22 @@ inline void oob_recv_buffer<CascadeTypes...>::stop() {
 template<typename... CascadeTypes>
 inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
     using namespace std::chrono_literals;
+
+    // Pin this receiving thread to specified core if requested
+    if (cpu_core_id >= 0) {
+        cpu_set_t cpuset;
+        CPU_ZERO(&cpuset);
+        CPU_SET(cpu_core_id, &cpuset);
+        int rc = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+        if (rc != 0) {
+            // Log warning but continue - this is not critical for functionality
+            dbg_default_warn("Failed to set CPU affinity for receiving thread to core {}: {}", cpu_core_id, strerror(rc));
+        } else {
+            dbg_default_info("Receiving thread pinned to core {}", cpu_core_id);
+        }
+    } else {
+        dbg_default_info("Receiving thread started without CPU pinning");
+    }
 
     while (stop_flag.load(std::memory_order_acquire) == 0) {
         void* head_ptr = head.load();
@@ -286,9 +305,9 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
                             release_func
                         );
                         
-                        // Wait for release before proceeding
+                        // Busy wait for release - no context switching
                         while (buffer_locked.load()) {
-                            std::this_thread::sleep_for(std::chrono::microseconds(1));
+                            _mm_pause();
                         }
                     }
                 } else if (subscription_mode == SubscriptionMode::MEMORY_COPY) {

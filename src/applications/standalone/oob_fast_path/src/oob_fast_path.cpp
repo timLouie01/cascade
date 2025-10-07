@@ -274,13 +274,11 @@ public:
                       << ", rkey=0x" << payload.head_info->head_rkey << std::dec << std::endl;
             
             try {
-                // Connect using the head info from sender
                 client.oob_recv_connect(recv_buf, payload.head_info->head, payload.head_info->head_rkey);
                 std::cout << "[START_RECV] Recv buffer connected to sender's head" << std::endl;
                 
-                // Start the recv buffer
-                client.oob_recv_start(recv_buf);
-                std::cout << "[START_RECV] Recv buffer started" << std::endl;
+                client.oob_recv_start(recv_buf, 9);
+                std::cout << "[START_RECV] Recv buffer started with receiving thread on core 10" << std::endl;
                 
                 // Register zero-copy lock subscriber for data processing
                 recv_buf->set_zero_copy_subscriber(
@@ -306,9 +304,14 @@ private:
         const auto start_time = std::chrono::high_resolution_clock::now();
         
         for (int i = 0; i < num_messages; ++i) {
-            if (send_buf->can_fit(sizeof(TestData))){
+            // Busy Wait:
+            for (int pause_cycles = 0; pause_cycles < 8; ++pause_cycles) {
+                    _mm_pause();
+                }
+            while (!send_buf->can_fit(sizeof(TestData))) {
+                 _mm_pause();
+            }
             try {
-                
                 // Create test data
                 TestData data;
                 data.sequence_number = i + 1;
@@ -321,15 +324,14 @@ private:
                 
                 send_buf->write(reinterpret_cast<uint64_t>(&data), sizeof(TestData), false);
                 
-                std::cout << "[SEND] Sent message " << data.sequence_number 
-                          << ": " << data.message << std::endl;
+                // std::cout << "[SEND] Sent message " << data.sequence_number 
+                        //   << ": " << data.message << std::endl;
                 
             } catch (const std::exception& e) {
                 std::cout << "[ERROR] Exception while sending data: " << e.what() << std::endl;
                 break;
             }
         }
-    }
         std::cout << "[SEND_THREAD] Completed sending " << num_messages << std::endl;
         
         TimestampLogger::flush("send_oob_fast_path_timestamp.dat");
@@ -352,13 +354,13 @@ private:
                 
                 TimestampLogger::log(LOG_OOBWRITE_RECV, client.get_my_id(), test_data->sequence_number);
                 
-                std::cout << "[RECV-ZERO-COPY] Received message " << test_data->sequence_number 
-                          << ": " << test_data->message << " (size: " << size << ")" << std::endl;
+                // std::cout << "[RECV-ZERO-COPY] Received message " << test_data->sequence_number 
+                        //   << ": " << test_data->message << " (size: " << size << ")" << std::endl;
                 
-                if (received_count % 100 == 0) {
-                    std::cout << "[RECV-ZERO-COPY] Progress: " << received_count 
-                              << "/" << expected_messages << " messages received" << std::endl;
-                }
+                // if (received_count % 100 == 0) {
+                //     std::cout << "[RECV-ZERO-COPY] Progress: " << received_count 
+                //               << "/" << expected_messages << " messages received" << std::endl;
+                // }
                 
                 // Check if we've received all expected messages
                 if (received_count >= expected_messages) {

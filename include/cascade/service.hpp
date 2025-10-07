@@ -917,7 +917,7 @@ namespace cascade {
 
     void oob_send_start(std::unique_ptr<oob_send_buffer<CascadeTypes...>>& send_buf);
 
-    void oob_recv_start(std::unique_ptr<oob_recv_buffer<CascadeTypes...>>& recv_buf);
+    void oob_recv_start(std::unique_ptr<oob_recv_buffer<CascadeTypes...>>& recv_buf, int cpu_core = -1);
     
     std::unique_ptr<oob_recv_buffer<CascadeTypes...>>  oob_recv_buff_create(const node_id_t remote_node,const std::string& send_udl, uint64_t bytes_alloc);
 

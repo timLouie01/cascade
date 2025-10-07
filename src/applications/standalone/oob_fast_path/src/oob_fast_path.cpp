@@ -278,7 +278,7 @@ public:
                 std::cout << "[START_RECV] Recv buffer connected to sender's head" << std::endl;
                 
                 client.oob_recv_start(recv_buf, 9);
-                std::cout << "[START_RECV] Recv buffer started with receiving thread on core 10" << std::endl;
+                std::cout << "[START_RECV] Recv buffer started with receiving thread on core 9" << std::endl;
                 
                 // Register zero-copy lock subscriber for data processing
                 recv_buf->set_zero_copy_subscriber(
@@ -322,8 +322,9 @@ private:
                 // Log send timestamp
                 TimestampLogger::log(LOG_OOBWRITE_SEND, client.get_my_id(), data.sequence_number);
                 
+                std::cout << "[DEBUG] Attempting to write static data..." << std::endl;
                 send_buf->write(reinterpret_cast<uint64_t>(&data), sizeof(TestData), false);
-                
+                std::cout << "[DEBUG] Static data write successful" << std::endl;
                 // std::cout << "[SEND] Sent message " << data.sequence_number 
                         //   << ": " << data.message << std::endl;
                 

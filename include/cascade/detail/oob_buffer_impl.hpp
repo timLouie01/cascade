@@ -157,24 +157,25 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
             uint64_t data_size = std::min(available_data, chunk_size);
             
             this->service_client.template oob_memwrite<typename std::tuple_element<0, std::tuple<CascadeTypes...>>::type>(
-                this->dest_buffer_addr + tail_offset,  // Remote buffer at our tail offset
+                this->dest_buffer_addr + tail_offset,
                 this->recv_node,
                 this->dest_buff_r_key,
                 data_size,
                 false,
-                buffer_start + head_offset,  // Local data source
+                buffer_start + head_offset,
                 false,
                 false
             );
             
-            uint64_t new_recv_tail = (tail_offset + data_size) % ring_size;
+            *reinterpret_cast<uint64_t*>(tail_ptr) =  (tail_offset + data_size) % ring_size;
+            
             this->service_client.template oob_memwrite<typename std::tuple_element<0, std::tuple<CascadeTypes...>>::type>(
-                this->dest_tail_addr,  // Remote tail location
+                this->dest_tail_addr,
                 this->recv_node,
                 this->dest_tail_r_key,
                 sizeof(uint64_t),
                 false,
-                reinterpret_cast<uint64_t>(&new_recv_tail),
+                reinterpret_cast<uint64_t>(tail_ptr),
                 false,
                 false
             );

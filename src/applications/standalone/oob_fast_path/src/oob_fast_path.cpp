@@ -87,7 +87,7 @@ public:
             // Sender - prepare to send data
             const uint64_t ring_size = 64 * 1024; // 64KB ring buffer
 			// init wrong node
-            uint32_t dest_node = 0;
+            uint32_t dest_node = 1;
             
 
             if (value_ptr) {
@@ -113,7 +113,7 @@ public:
                 // Notify the destination node to prepare its receive buffer
                 uint32_t my_node_id = client.get_my_id();
                 Blob dest_blob(reinterpret_cast<const uint8_t*>(&my_node_id), sizeof(uint32_t));
-                ObjectWithStringKey obj("oob/prepare_recv", dest_blob);
+                ObjectWithStringKey obj("oob_fp/prepare_recv", dest_blob);
                 client.put_and_forget<VolatileCascadeStoreWithStringKey>(obj, 0, dest_node);
                 
                 std::cout << "[PREPARE_SEND] Notified node " << dest_node << " to prepare receive buffer" << std::endl;
@@ -125,7 +125,7 @@ public:
         else if (tokens[1] == "prepare_recv") {
             // Receiver - prepare to receive data
             const uint64_t ring_size = 64 * 1024; // 64KB ring buffer
-            uint32_t send_node = 1;
+            uint32_t send_node = 0;
             
             // Extract sender node from the payload
             if (value_ptr) {
@@ -167,7 +167,7 @@ public:
                 };
                 
                 Blob blob(reinterpret_cast<const uint8_t*>(&payload), sizeof(payload));
-                ObjectWithStringKey obj("oob/send_connect", blob);
+                ObjectWithStringKey obj("oob_fp/send_connect", blob);
                 client.put_and_forget<VolatileCascadeStoreWithStringKey>(obj, 0, send_node);
                 
                 std::cout << "[PREPARE_RECV] Sent connection info back to sender node " << send_node << std::endl;
@@ -224,7 +224,7 @@ public:
                     my_node_id      
                 };
                 Blob response_blob(reinterpret_cast<const uint8_t*>(&response_payload), sizeof(response_payload));
-                ObjectWithStringKey response_obj("oob/start_recv", response_blob);
+                ObjectWithStringKey response_obj("oob_fp/start_recv", response_blob);
                 client.put_and_forget<VolatileCascadeStoreWithStringKey>(response_obj, 0, payload.dest_node);
                 
                 std::cout << "[CONNECT] Notified receiver to start with head info: addr=0x" 

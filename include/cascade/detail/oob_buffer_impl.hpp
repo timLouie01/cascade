@@ -167,8 +167,6 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
                 false
             );
             
-            *reinterpret_cast<uint64_t*>(tail_ptr) =  (tail_offset + data_size) % ring_size;
-            
             this->service_client.template oob_memwrite<typename std::tuple_element<0, std::tuple<CascadeTypes...>>::type>(
                 this->dest_tail_addr,
                 this->recv_node,
@@ -180,8 +178,6 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
                 false
             );
             
-            uint64_t new_head = (head_offset + data_size) % ring_size;
-            *reinterpret_cast<uint64_t*>(head_ptr) = new_head;
         } else {
             std::this_thread::sleep_for(50us);
         }

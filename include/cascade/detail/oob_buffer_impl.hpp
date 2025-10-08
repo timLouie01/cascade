@@ -35,6 +35,9 @@ inline oob_send_buffer<CascadeTypes...>::oob_send_buffer(void* buff,
     *reinterpret_cast<uint64_t*>(head) = 0;
     *reinterpret_cast<uint64_t*>(tail) = 0;
     
+    // Initialize send_tail to match tail initially
+    send_tail.store(tail);
+    
     cached_write_location = reinterpret_cast<uint64_t>(buff);
 }
 
@@ -71,26 +74,26 @@ inline uint64_t oob_send_buffer<CascadeTypes...>::get_write_location() {
 }
 template<typename... CascadeTypes>
 inline void oob_send_buffer<CascadeTypes...>::advance_tail(size_t bytes_written) {
-    void* tail_ptr = tail.load();
-    uint64_t current_tail = *reinterpret_cast<uint64_t*>(tail_ptr);
-    uint64_t new_tail = (current_tail + bytes_written) % ring_size;
-    *reinterpret_cast<uint64_t*>(tail_ptr) = new_tail;
+    void* send_tail_ptr = send_tail.load();
+    uint64_t current_send_tail = *reinterpret_cast<uint64_t*>(send_tail_ptr);
+    uint64_t new_send_tail = (current_send_tail + bytes_written) % ring_size;
+    *reinterpret_cast<uint64_t*>(send_tail_ptr) = new_send_tail;
     
     uint64_t buffer_start = reinterpret_cast<uint64_t>(buff);
-    cached_write_location = buffer_start + new_tail;
+    cached_write_location = buffer_start + new_send_tail;
 }
 
 template<typename... CascadeTypes>
 inline size_t oob_send_buffer<CascadeTypes...>::get_available_space() const {
     void* head_ptr = head.load();
-    void* tail_ptr = tail.load();
+    void* send_tail_ptr = send_tail.load();
     uint64_t head_offset = *reinterpret_cast<uint64_t*>(head_ptr);
-    uint64_t tail_offset = *reinterpret_cast<uint64_t*>(tail_ptr);
+    uint64_t send_tail_offset = *reinterpret_cast<uint64_t*>(send_tail_ptr);
     
-    if (tail_offset >= head_offset) {
-        return (ring_size - tail_offset) + head_offset - 1;
+    if (send_tail_offset >= head_offset) {
+        return (ring_size - send_tail_offset) + head_offset - 1;
     } else {
-        return head_offset - tail_offset - 1;
+        return head_offset - send_tail_offset - 1;
     }
 }
 
@@ -139,41 +142,64 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
     while (stop_flag.load(std::memory_order_acquire) == 0) {
         void* head_ptr = head.load();
         void* tail_ptr = tail.load();
+        void* send_tail_ptr = send_tail.load();
         uint64_t head_offset = *reinterpret_cast<uint64_t*>(head_ptr);
         uint64_t tail_offset = *reinterpret_cast<uint64_t*>(tail_ptr);
+        uint64_t send_tail_offset = *reinterpret_cast<uint64_t*>(send_tail_ptr);
         
-        if (tail_offset != head_offset) {
+        // Send data from tail to send_tail (data written but not yet sent)
+        if (send_tail_offset != tail_offset) {
             uint64_t buffer_start = reinterpret_cast<uint64_t>(buff);
             
             const uint64_t chunk_size = 5 * 1024; // 5 KiB
             uint64_t available_data;
-            if (tail_offset >= head_offset) {
-                available_data = tail_offset - head_offset;
+            uint64_t data_size;
+            
+            if (send_tail_offset >= tail_offset) {
+                // Normal case: no wrap around
+                available_data = send_tail_offset - tail_offset;
+                data_size = std::min(available_data, chunk_size);
             } else {
-                available_data = ring_size - head_offset;
+                // Wrap around case: send from tail_offset to end of ring
+                available_data = ring_size - tail_offset;
+                
+                // If leftover to end of ring is not 5KB, send from start instead
+                if (available_data < chunk_size) {
+                    // Send from start of ring (where send_tail wrapped to)
+                    available_data = send_tail_offset;  // send_tail_offset is from start of ring
+                    data_size = std::min(available_data, chunk_size);
+                    
+                    // Override source to read from start of buffer
+                    tail_offset = 0;  // Read from start
+                } else {
+                    data_size = std::min(available_data, chunk_size);
+                }
             }
             
-            // Send up to 5 KiB or whatever is available
-            uint64_t data_size = std::min(available_data, chunk_size);
-            
+            // Write data to remote buffer at their current tail position
             this->service_client.template oob_memwrite<typename std::tuple_element<0, std::tuple<CascadeTypes...>>::type>(
-                this->dest_buffer_addr + tail_offset,
+                this->dest_buffer_addr + tail_offset,  // Write at remote tail
                 this->recv_node,
                 this->dest_buff_r_key,
                 data_size,
                 false,
-                buffer_start + head_offset,
+                buffer_start + tail_offset,  // Read from our tail (data to send)
                 false,
                 false
             );
             
+            // Update our local tail atomically (mark data as sent)
+            uint64_t new_tail = (tail_offset + data_size) % ring_size;
+            *reinterpret_cast<uint64_t*>(tail_ptr) = new_tail;
+            
+            // Tell remote their new tail position (use our updated tail value)
             this->service_client.template oob_memwrite<typename std::tuple_element<0, std::tuple<CascadeTypes...>>::type>(
                 this->dest_tail_addr,
                 this->recv_node,
                 this->dest_tail_r_key,
                 sizeof(uint64_t),
                 false,
-                reinterpret_cast<uint64_t>(tail_ptr),
+                reinterpret_cast<uint64_t>(tail_ptr),  // Send our tail pointer
                 false,
                 false
             );

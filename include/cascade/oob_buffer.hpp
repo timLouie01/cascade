@@ -51,6 +51,7 @@ private:
   void* buff {nullptr};
   std::atomic<void*> head{nullptr};
   std::atomic<void*> tail{nullptr};
+  std::atomic<void*> send_tail{nullptr};  // New: where app writes new data
   std::uint64_t send_head_r_key{};
   node_id_t recv_node{};
   std::string recv_udl{};

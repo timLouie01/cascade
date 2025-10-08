@@ -58,6 +58,10 @@ oob_send_buffer<CascadeTypes...>::create(void* buff,
 
 template<typename... CascadeTypes>
 inline void oob_send_buffer<CascadeTypes...>::setup_connection(uint64_t buffer_addr, uint64_t tail_addr, std::uint64_t buff_r_key, std::uint64_t tail_r_key) {
+    std::cout << "[SETUP_CONNECTION] Setting dest_buffer_addr=0x" << std::hex << buffer_addr 
+              << ", dest_tail_addr=0x" << tail_addr << std::dec << std::endl;
+    std::cout << "[SETUP_CONNECTION] Setting dest_buff_r_key=0x" << std::hex << buff_r_key 
+              << ", dest_tail_r_key=0x" << tail_r_key << std::dec << std::endl;
     this->dest_buffer_addr = buffer_addr;
     this->dest_tail_addr = tail_addr;
     this->dest_buff_r_key = buff_r_key;
@@ -199,14 +203,19 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
             uint64_t new_tail = (tail_offset + data_size) % ring_size;
             *reinterpret_cast<uint64_t*>(tail_ptr) = new_tail;
             
-            // Tell remote their new tail position (use our updated tail value)
+            std::cout << "[RDMA_SEND] Updated local tail to " << new_tail << ", sending to remote" << std::endl;
+            std::cout << "[RDMA_SEND] dest_tail_addr=0x" << std::hex << this->dest_tail_addr 
+                      << ", dest_tail_r_key=0x" << this->dest_tail_r_key << std::dec 
+                      << ", recv_node=" << this->recv_node << std::endl;
+            
+            // Tell remote their new tail position (use registered memory)
             this->service_client.template oob_memwrite<typename std::tuple_element<0, std::tuple<CascadeTypes...>>::type>(
                 this->dest_tail_addr,
                 this->recv_node,
                 this->dest_tail_r_key,
                 sizeof(uint64_t),
                 false,
-                reinterpret_cast<uint64_t>(tail_ptr),  // Send our tail pointer
+                reinterpret_cast<uint64_t>(tail_ptr),  // Use registered tail memory
                 false,
                 false
             );

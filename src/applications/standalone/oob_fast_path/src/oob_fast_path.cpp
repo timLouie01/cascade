@@ -51,12 +51,16 @@ private:
         char message[5112];
     };
     
-    // Connection payload using the service-defined structs
+    // Connection payload using POD structs (no std::optional)
     struct ConnectionPayload {
-        std::optional<Buffer> buffer_info;  
-        std::optional<Tail> tail_info;      
-        std::optional<Head> head_info;      
+        Buffer buffer_info;
+        Tail tail_info;
+        Head head_info;
         uint32_t dest_node;
+        uint8_t has_buffer;    // 1 if buffer_info is valid, 0 otherwise
+        uint8_t has_tail;      // 1 if tail_info is valid, 0 otherwise  
+        uint8_t has_head;      // 1 if head_info is valid, 0 otherwise
+        uint8_t padding;       // For alignment
     };
     
 

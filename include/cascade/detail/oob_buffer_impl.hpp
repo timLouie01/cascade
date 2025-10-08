@@ -85,6 +85,10 @@ inline void oob_send_buffer<CascadeTypes...>::advance_tail(size_t bytes_written)
     uint64_t new_send_tail = (current_send_tail + bytes_written) % ring_size;
     *reinterpret_cast<volatile uint64_t*>(send_tail_ptr) = new_send_tail;
     
+    std::cout << "[ADVANCE_TAIL] Advanced send_tail from " << current_send_tail 
+              << " to " << new_send_tail << " (+" << bytes_written << " bytes)" << std::endl;
+    std::cout.flush();
+    
     uint64_t buffer_start = reinterpret_cast<uint64_t>(buff);
     cached_write_location = buffer_start + new_send_tail;
 }
@@ -108,6 +112,9 @@ inline size_t oob_send_buffer<CascadeTypes...>::get_available_space() const {
 template<typename... CascadeTypes>
 inline void oob_send_buffer<CascadeTypes...>::write(uint64_t local_addr, size_t size, bool local_gpu) {
     void* src = reinterpret_cast<void*>(local_addr);
+    
+    std::cout << "[BUFFER_WRITE] Writing " << size << " bytes to buffer!" << std::endl;
+    std::cout.flush();
     
     if (local_gpu){
         #ifdef USE_CUDA
@@ -147,6 +154,9 @@ template<typename... CascadeTypes>
 inline void oob_send_buffer<CascadeTypes...>::run_send() {
     using namespace std::chrono_literals;
 
+    std::cout << "[SENDER_THREAD] Starting sender thread!" << std::endl;
+    std::cout.flush();
+
     while (stop_flag.load(std::memory_order_acquire) == 0) {
         void* head_ptr = head.load();
         void* tail_ptr = tail.load();
@@ -160,15 +170,21 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
         uint64_t tail_offset = *reinterpret_cast<volatile uint64_t*>(tail_ptr);
         uint64_t send_tail_offset = *reinterpret_cast<volatile uint64_t*>(send_tail_ptr);
         
-        // Debug output
+        // Debug output - print EVERY iteration for the first 10, then every 1000
         static int debug_count = 0;
-        if (++debug_count % 1000 == 0) {  // Print every 1000 iterations
-            std::cout << "[RDMA_DEBUG] tail=" << tail_offset << ", send_tail=" << send_tail_offset << ", head=" << head_offset << std::endl;
+        debug_count++;
+        if (debug_count <= 10 || debug_count % 1000 == 0) {
+            std::cout << "[RDMA_DEBUG] Iteration " << debug_count 
+                      << ": tail=" << tail_offset << ", send_tail=" << send_tail_offset 
+                      << ", head=" << head_offset << std::endl;
+            std::cout.flush();
         }
         
         // Send data from tail to send_tail (data written but not yet sent)
         if (send_tail_offset != tail_offset) {
-            std::cout << "[RDMA_SEND] Sending data: tail=" << tail_offset << ", send_tail=" << send_tail_offset << std::endl;
+            std::cout << "[RDMA_SEND] *** DATA TO SEND *** tail=" << tail_offset 
+                      << ", send_tail=" << send_tail_offset << std::endl;
+            std::cout.flush();
             uint64_t buffer_start = reinterpret_cast<uint64_t>(buff);
             
             const uint64_t chunk_size = 5 * 1024; // 5 KiB

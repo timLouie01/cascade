@@ -316,23 +316,34 @@ private:
         const auto start_time = std::chrono::high_resolution_clock::now();
         
         for (int i = 0; i < num_messages; ++i) {
-            // Yield to other threads every 100 messages to prevent starving Derecho
-            if (i % 100 == 0) {
+            // Yield to other threads every 50 messages to prevent starving Derecho
+            if (i % 50 == 0) {
                 std::this_thread::yield();
+                // Also sleep briefly every 1000 messages for better cooperation
+                if (i % 1000 == 0) {
+                    std::this_thread::sleep_for(std::chrono::microseconds(100));
+                }
             }
             
-            // Busy Wait with yielding:
-            for (int pause_cycles = 0; pause_cycles < 8; ++pause_cycles) {
-                    _mm_pause();
-                }
+            // Brief pause before checking space
+            for (int pause_cycles = 0; pause_cycles < 4; ++pause_cycles) {
+                _mm_pause();
+            }
+            
+            // Wait for space with better yielding strategy
             int wait_cycles = 0;
             while (!send_buf->can_fit(sizeof(TestData))) {
-                 _mm_pause();
-                 // Yield every 1000 wait cycles to prevent starving other threads
-                 if (++wait_cycles % 1000 == 0) {
-                     std::this_thread::yield();
-                 }
+                _mm_pause();
+                // Yield more frequently to prevent starving other threads
+                if (++wait_cycles % 500 == 0) {
+                    std::this_thread::yield();
+                    // Sleep briefly every 2000 wait cycles
+                    if (wait_cycles % 2000 == 0) {
+                        std::this_thread::sleep_for(std::chrono::microseconds(50));
+                    }
+                }
             }
+            
             try {
                 // Create test data
                 TestData data;
@@ -344,14 +355,23 @@ private:
                 // Log send timestamp
                 TimestampLogger::log(LOG_OOBWRITE_SEND, client.get_my_id(), data.sequence_number);
                 
-                std::cout << "[DEBUG] Attempting to write static data..." << std::endl;
-                send_buf->write(reinterpret_cast<uint64_t>(&data), sizeof(TestData), false);
-                std::cout << "[DEBUG] Static data write successful" << std::endl;
-                // std::cout << "[SEND] Sent message " << data.sequence_number 
-                        //   << ": " << data.message << std::endl;
+                // Remove excessive debug output that might cause issues
+                if (i % 5000 == 0) {
+                    std::cout << "[SEND_THREAD] Progress: " << i << "/" << num_messages << std::endl;
+                }
+                
+                // Double-check space availability just before writing
+                if (send_buf->can_fit(sizeof(TestData))) {
+                    send_buf->write(reinterpret_cast<uint64_t>(&data), sizeof(TestData), false);
+                } else {
+                    std::cout << "[SEND_WARNING] Lost space between check and write for message " << i << std::endl;
+                    // Retry the iteration
+                    --i;
+                    continue;
+                }
                 
             } catch (const std::exception& e) {
-                std::cout << "[ERROR] Exception while sending data: " << e.what() << std::endl;
+                std::cout << "[ERROR] Exception while sending data at message " << i << ": " << e.what() << std::endl;
                 break;
             }
         }

@@ -234,12 +234,20 @@ public:
                 std::cout << "[CONNECT] Notified receiver to start with head info: addr=0x" 
                           << std::hex << head_info.head << ", rkey=0x" << head_info.head_rkey << std::dec << std::endl;
                 
-                // Start sending data in a separate thread
+                // Start sending data in a separate thread with proper yielding
                 std::thread([this, &client]() {
+                    // Pin to core 9 as requested
                     cpu_set_t set;
                     CPU_ZERO(&set);
                     CPU_SET(9, &set);
                     pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
+                    
+                    // Set thread name for debugging
+                    pthread_setname_np(pthread_self(), "OOB_SEND_APP");
+                    
+                    // Give Derecho threads time to stabilize before starting intensive work
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    
                     this->start_sending_data(client);
                 }).detach();
                 
@@ -308,12 +316,22 @@ private:
         const auto start_time = std::chrono::high_resolution_clock::now();
         
         for (int i = 0; i < num_messages; ++i) {
-            // Busy Wait:
+            // Yield to other threads every 100 messages to prevent starving Derecho
+            if (i % 100 == 0) {
+                std::this_thread::yield();
+            }
+            
+            // Busy Wait with yielding:
             for (int pause_cycles = 0; pause_cycles < 8; ++pause_cycles) {
                     _mm_pause();
                 }
+            int wait_cycles = 0;
             while (!send_buf->can_fit(sizeof(TestData))) {
                  _mm_pause();
+                 // Yield every 1000 wait cycles to prevent starving other threads
+                 if (++wait_cycles % 1000 == 0) {
+                     std::this_thread::yield();
+                 }
             }
             try {
                 // Create test data

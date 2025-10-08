@@ -116,22 +116,49 @@ inline size_t oob_send_buffer<CascadeTypes...>::get_available_space() const {
     void* head_ptr = head.load();
     void* send_tail_ptr = send_tail.load();
     
+    // Force memory barrier to get fresh RDMA-updated values
+    std::atomic_thread_fence(std::memory_order_acquire);
+    
     // Use volatile access for memory that may be updated by RDMA
     uint64_t head_offset = *reinterpret_cast<volatile uint64_t*>(head_ptr);
     uint64_t send_tail_offset = *reinterpret_cast<volatile uint64_t*>(send_tail_ptr);
     
-    if (send_tail_offset >= head_offset) {
-        return (ring_size - send_tail_offset) + head_offset - 1;
-    } else {
-        return head_offset - send_tail_offset - 1;
+    // Validate offsets are within ring bounds
+    if (head_offset >= ring_size || send_tail_offset >= ring_size) {
+        std::cout << "[SPACE_ERROR] Invalid offsets: head=" << head_offset 
+                  << ", send_tail=" << send_tail_offset << ", ring_size=" << ring_size << std::endl;
+        return 0;  // Conservative: no space available if offsets are corrupted
     }
+    
+    size_t available_space;
+    if (send_tail_offset >= head_offset) {
+        // Normal case: send_tail is ahead of head
+        // Available space = (end of ring - send_tail) + (head - start) - 1
+        available_space = (ring_size - send_tail_offset) + head_offset;
+        if (available_space > 0) available_space -= 1;  // Reserve 1 byte to distinguish full from empty
+    } else {
+        // Wrap case: head is ahead of send_tail 
+        // Available space = head - send_tail - 1
+        available_space = head_offset - send_tail_offset;
+        if (available_space > 0) available_space -= 1;  // Reserve 1 byte to distinguish full from empty
+    }
+    
+    // Debug output occasionally
+    static int space_debug_count = 0;
+    if (++space_debug_count % 100 == 0) {
+        std::cout << "[SPACE_DEBUG] head=" << head_offset << ", send_tail=" << send_tail_offset 
+                  << ", available=" << available_space << std::endl;
+    }
+    
+    return available_space;
 }
 
 template<typename... CascadeTypes>
 inline void oob_send_buffer<CascadeTypes...>::write(uint64_t local_addr, size_t size, bool local_gpu) {
     void* src = reinterpret_cast<void*>(local_addr);
     
-    std::cout << "[BUFFER_WRITE] Writing " << size << " bytes to buffer!" << std::endl;
+    std::cout << "[BUFFER_WRITE] Writing " << size << " bytes to buffer (available: " 
+              << get_available_space() << " bytes)" << std::endl;
     std::cout.flush();
     
     if (local_gpu){
@@ -208,27 +235,34 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
             const uint64_t chunk_size = 5 * 1024; // 5 KiB
             uint64_t available_data;
             uint64_t data_size;
+            uint64_t send_from_offset = tail_offset;  // Where to read data from our buffer
             
             if (send_tail_offset >= tail_offset) {
                 // Normal case: no wrap around
                 available_data = send_tail_offset - tail_offset;
                 data_size = std::min(available_data, chunk_size);
             } else {
-                // Wrap around case: send from tail_offset to end of ring
+                // Wrap around case: send from tail_offset to end of ring first
                 available_data = ring_size - tail_offset;
                 
-                // If leftover to end of ring is not 5KB, send from start instead
+                // If leftover space at end is less than 5KB, skip to beginning
                 if (available_data < chunk_size) {
-                    // Send from start of ring (where send_tail wrapped to)
+                    // Skip to beginning and send from start of ring
                     available_data = send_tail_offset;  // send_tail_offset is from start of ring
                     data_size = std::min(available_data, chunk_size);
+                    send_from_offset = 0;  // Read from start of buffer
                     
-                    // Override source to read from start of buffer
-                    tail_offset = 0;  // Read from start
+                    // Update our tail to point to start (we're skipping the end fragment)
+                    *reinterpret_cast<volatile uint64_t*>(tail_ptr) = 0;
+                    tail_offset = 0;  // Now tail points to start for remote write
                 } else {
+                    // Enough space at end, send from current tail
                     data_size = std::min(available_data, chunk_size);
                 }
             }
+            
+            std::cout << "[RDMA_SEND] Sending " << data_size << " bytes from local offset " 
+                      << send_from_offset << " to remote offset " << tail_offset << std::endl;
             
             // Write data to remote buffer at their current tail position
             this->service_client.template oob_memwrite<typename std::tuple_element<0, std::tuple<CascadeTypes...>>::type>(
@@ -237,7 +271,7 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
                 this->dest_buff_r_key,
                 data_size,
                 false,
-                buffer_start + tail_offset,  // Read from our tail (data to send)
+                buffer_start + send_from_offset,  // Read from our calculated source offset
                 false,
                 false
             );

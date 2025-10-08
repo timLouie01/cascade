@@ -35,8 +35,19 @@ inline oob_send_buffer<CascadeTypes...>::oob_send_buffer(void* buff,
     *reinterpret_cast<uint64_t*>(head) = 0;
     *reinterpret_cast<uint64_t*>(tail) = 0;
     
-    // Initialize send_tail to match tail initially
-    send_tail.store(tail);
+    // Allocate separate memory for send_tail (where app writes new data)
+    const size_t align = 64;
+    void* send_tail_mem = aligned_alloc(align, sizeof(uint64_t));
+    if (!send_tail_mem) throw std::bad_alloc();
+    
+    // Initialize send_tail memory to 0
+    *reinterpret_cast<uint64_t*>(send_tail_mem) = 0;
+    
+    // Store pointer to this separate memory location
+    send_tail.store(send_tail_mem);
+    
+    std::cout << "[CONSTRUCTOR] Allocated separate send_tail memory at " << send_tail_mem << std::endl;
+    std::cout << "[CONSTRUCTOR] head=" << head << ", tail=" << tail << ", send_tail=" << send_tail_mem << std::endl;
     
     cached_write_location = reinterpret_cast<uint64_t>(buff);
 }
@@ -71,6 +82,13 @@ inline void oob_send_buffer<CascadeTypes...>::setup_connection(uint64_t buffer_a
 template<typename... CascadeTypes>
 inline oob_send_buffer<CascadeTypes...>::~oob_send_buffer() {
     stop();
+    
+    // Free the allocated send_tail memory
+    void* send_tail_mem = send_tail.load();
+    if (send_tail_mem) {
+        std::cout << "[DESTRUCTOR] Freeing send_tail memory at " << send_tail_mem << std::endl;
+        free(send_tail_mem);
+    }
 }
 template<typename... CascadeTypes>
 inline uint64_t oob_send_buffer<CascadeTypes...>::get_write_location() {

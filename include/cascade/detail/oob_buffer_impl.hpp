@@ -147,8 +147,15 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
         uint64_t tail_offset = *reinterpret_cast<uint64_t*>(tail_ptr);
         uint64_t send_tail_offset = *reinterpret_cast<uint64_t*>(send_tail_ptr);
         
+        // Debug output
+        static int debug_count = 0;
+        if (++debug_count % 1000 == 0) {  // Print every 1000 iterations
+            std::cout << "[RDMA_DEBUG] tail=" << tail_offset << ", send_tail=" << send_tail_offset << ", head=" << head_offset << std::endl;
+        }
+        
         // Send data from tail to send_tail (data written but not yet sent)
         if (send_tail_offset != tail_offset) {
+            std::cout << "[RDMA_SEND] Sending data: tail=" << tail_offset << ", send_tail=" << send_tail_offset << std::endl;
             uint64_t buffer_start = reinterpret_cast<uint64_t>(buff);
             
             const uint64_t chunk_size = 5 * 1024; // 5 KiB

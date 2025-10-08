@@ -269,8 +269,13 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
             // Ensure RDMA tail update is ordered and visible
             std::atomic_thread_fence(std::memory_order_release);
             
+            // Yield briefly to allow Derecho threads to run
+            std::this_thread::yield();
+            
         } else {
-            std::this_thread::sleep_for(50us);
+            // Yield to other threads (like Derecho) when no data to send
+            std::this_thread::yield();
+            std::this_thread::sleep_for(1ms);  // 1ms instead of 50us
         }
     }
 }
@@ -441,8 +446,13 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
             
             // Ensure RDMA head update is ordered and visible
             std::atomic_thread_fence(std::memory_order_release);
+            
+            // Yield briefly to allow Derecho threads to run
+            std::this_thread::yield();
         } else {
-            std::this_thread::sleep_for(10us);
+            // Yield to other threads (like Derecho) when no data available
+            std::this_thread::yield();
+            std::this_thread::sleep_for(1ms);  // 1ms instead of 10us
         }
     }
 }

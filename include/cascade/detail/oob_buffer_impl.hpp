@@ -79,9 +79,11 @@ inline uint64_t oob_send_buffer<CascadeTypes...>::get_write_location() {
 template<typename... CascadeTypes>
 inline void oob_send_buffer<CascadeTypes...>::advance_tail(size_t bytes_written) {
     void* send_tail_ptr = send_tail.load();
-    uint64_t current_send_tail = *reinterpret_cast<uint64_t*>(send_tail_ptr);
+    
+    // Use volatile access for potentially RDMA-updated memory
+    uint64_t current_send_tail = *reinterpret_cast<volatile uint64_t*>(send_tail_ptr);
     uint64_t new_send_tail = (current_send_tail + bytes_written) % ring_size;
-    *reinterpret_cast<uint64_t*>(send_tail_ptr) = new_send_tail;
+    *reinterpret_cast<volatile uint64_t*>(send_tail_ptr) = new_send_tail;
     
     uint64_t buffer_start = reinterpret_cast<uint64_t>(buff);
     cached_write_location = buffer_start + new_send_tail;
@@ -91,8 +93,10 @@ template<typename... CascadeTypes>
 inline size_t oob_send_buffer<CascadeTypes...>::get_available_space() const {
     void* head_ptr = head.load();
     void* send_tail_ptr = send_tail.load();
-    uint64_t head_offset = *reinterpret_cast<uint64_t*>(head_ptr);
-    uint64_t send_tail_offset = *reinterpret_cast<uint64_t*>(send_tail_ptr);
+    
+    // Use volatile access for memory that may be updated by RDMA
+    uint64_t head_offset = *reinterpret_cast<volatile uint64_t*>(head_ptr);
+    uint64_t send_tail_offset = *reinterpret_cast<volatile uint64_t*>(send_tail_ptr);
     
     if (send_tail_offset >= head_offset) {
         return (ring_size - send_tail_offset) + head_offset - 1;
@@ -147,9 +151,14 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
         void* head_ptr = head.load();
         void* tail_ptr = tail.load();
         void* send_tail_ptr = send_tail.load();
-        uint64_t head_offset = *reinterpret_cast<uint64_t*>(head_ptr);
-        uint64_t tail_offset = *reinterpret_cast<uint64_t*>(tail_ptr);
-        uint64_t send_tail_offset = *reinterpret_cast<uint64_t*>(send_tail_ptr);
+        
+        // Force memory barrier for consistency
+        std::atomic_thread_fence(std::memory_order_acquire);
+        
+        // Use volatile to prevent caching optimization for RDMA-updated memory
+        uint64_t head_offset = *reinterpret_cast<volatile uint64_t*>(head_ptr);
+        uint64_t tail_offset = *reinterpret_cast<volatile uint64_t*>(tail_ptr);
+        uint64_t send_tail_offset = *reinterpret_cast<volatile uint64_t*>(send_tail_ptr);
         
         // Debug output
         static int debug_count = 0;
@@ -199,9 +208,12 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
                 false
             );
             
+            // Ensure data write completes before updating tail
+            std::atomic_thread_fence(std::memory_order_release);
+            
             // Update our local tail atomically (mark data as sent)
             uint64_t new_tail = (tail_offset + data_size) % ring_size;
-            *reinterpret_cast<uint64_t*>(tail_ptr) = new_tail;
+            *reinterpret_cast<volatile uint64_t*>(tail_ptr) = new_tail;
             
             std::cout << "[RDMA_SEND] Updated local tail to " << new_tail << ", sending to remote" << std::endl;
             std::cout << "[RDMA_SEND] dest_tail_addr=0x" << std::hex << this->dest_tail_addr 
@@ -219,6 +231,9 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
                 false,
                 false
             );
+            
+            // Ensure RDMA tail update is ordered and visible
+            std::atomic_thread_fence(std::memory_order_release);
             
         } else {
             std::this_thread::sleep_for(50us);
@@ -315,8 +330,13 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
     while (stop_flag.load(std::memory_order_acquire) == 0) {
         void* head_ptr = head.load();
         void* tail_ptr = tail.load();
-        uint64_t head_offset = *reinterpret_cast<uint64_t*>(head_ptr);
-        uint64_t tail_offset = *reinterpret_cast<uint64_t*>(tail_ptr);
+        
+        // Force memory barrier to ensure fresh reads of RDMA-updated memory
+        std::atomic_thread_fence(std::memory_order_acquire);
+        
+        // Read with volatile to prevent caching optimization for RDMA-updated values
+        uint64_t head_offset = *reinterpret_cast<volatile uint64_t*>(head_ptr);
+        uint64_t tail_offset = *reinterpret_cast<volatile uint64_t*>(tail_ptr);
         
         // Debug output for receiver
         static int recv_debug_count = 0;
@@ -372,7 +392,7 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
             
             // Advance our head (consume data)
             uint64_t new_head = (head_offset + consume_size) % ring_size;
-            *reinterpret_cast<uint64_t*>(head_ptr) = new_head;
+            *reinterpret_cast<volatile uint64_t*>(head_ptr) = new_head;
 
             this->service_client.template oob_memwrite<typename std::tuple_element<0, std::tuple<CascadeTypes...>>::type>(
                 this->head_addr,
@@ -384,6 +404,9 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
                 false,
                 false
             );
+            
+            // Ensure RDMA head update is ordered and visible
+            std::atomic_thread_fence(std::memory_order_release);
         } else {
             std::this_thread::sleep_for(10us);
         }

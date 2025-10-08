@@ -6,7 +6,6 @@
 #include <thread>
 #include <chrono>
 #include <numa.h>
-#include <optional>
 #include <string>
 #include <immintrin.h>
 #include <cstring>
@@ -163,12 +162,13 @@ public:
                           << ", rkey=0x" << tail_info.tail_rkey << std::dec << std::endl;
                 
                 uint32_t my_node_id = client.get_my_id();
-                ConnectionPayload payload{
-                    buffer_info,
-                    tail_info,      
-                    std::nullopt,      
-                    my_node_id     
-                };
+                ConnectionPayload payload{};
+                payload.buffer_info = buffer_info;
+                payload.tail_info = tail_info;
+                payload.dest_node = my_node_id;
+                payload.has_buffer = 1;
+                payload.has_tail = 1;
+                payload.has_head = 0;
                 
                 Blob blob(reinterpret_cast<const uint8_t*>(&payload), sizeof(payload));
                 ObjectWithStringKey obj("oob_fp/send_connect", blob);
@@ -196,10 +196,10 @@ public:
             const ConnectionPayload payload = *reinterpret_cast<const ConnectionPayload*>(object->blob.bytes);
             
             std::cout << "[CONNECT] Setting up connection with node " << payload.dest_node << std::endl;
-            std::cout << "[CONNECT] Buffer: addr=0x" << std::hex << payload.buffer_info->buffer 
-                      << ", rkey=0x" << payload.buffer_info->buffer_rkey << std::dec << std::endl;
-            std::cout << "[CONNECT] Tail: addr=0x" << std::hex << payload.tail_info->tail 
-                      << ", rkey=0x" << payload.tail_info->tail_rkey << std::dec << std::endl;
+            std::cout << "[CONNECT] Buffer: addr=0x" << std::hex << payload.buffer_info.buffer 
+                      << ", rkey=0x" << payload.buffer_info.buffer_rkey << std::dec << std::endl;
+            std::cout << "[CONNECT] Tail: addr=0x" << std::hex << payload.tail_info.tail 
+                      << ", rkey=0x" << payload.tail_info.tail_rkey << std::dec << std::endl;
             
             if (!send_buf) {
                 std::cout << "[ERROR] No send buffer to connect!, Make sure to call oob_send_buff_create before calling oob_send_connect" << std::endl;
@@ -209,8 +209,8 @@ public:
             try {
                 // Setup connection for send buffer using the structured data
                 client.oob_send_connect(send_buf, 
-                                      payload.buffer_info->buffer, payload.tail_info->tail, 
-                                      payload.buffer_info->buffer_rkey, payload.tail_info->tail_rkey);
+                                      payload.buffer_info.buffer, payload.tail_info.tail, 
+                                      payload.buffer_info.buffer_rkey, payload.tail_info.tail_rkey);
                 std::cout << "[CONNECT] Send buffer connected" << std::endl;
                 
                 // Start the send buffer
@@ -221,12 +221,12 @@ public:
                 auto send_info = client.oob_send_get_info(send_buf);
                 Head head_info = send_info;
                 uint32_t my_node_id = client.get_my_id();
-                ConnectionPayload response_payload{
-                    std::nullopt,
-                    std::nullopt,    
-                    head_info,      
-                    my_node_id      
-                };
+                ConnectionPayload response_payload{};
+                response_payload.head_info = head_info;
+                response_payload.dest_node = my_node_id;
+                response_payload.has_buffer = 0;
+                response_payload.has_tail = 0;
+                response_payload.has_head = 1;
                 Blob response_blob(reinterpret_cast<const uint8_t*>(&response_payload), sizeof(response_payload));
                 ObjectWithStringKey response_obj("oob_fp/start_recv", response_blob);
                 client.put_and_forget<VolatileCascadeStoreWithStringKey>(response_obj, 0, payload.dest_node);
@@ -268,17 +268,17 @@ public:
             
             const ConnectionPayload payload = *reinterpret_cast<const ConnectionPayload*>(object->blob.bytes);
             
-            if (!payload.head_info.has_value()) {
+            if (!payload.has_head) {
                 std::cout << "[ERROR] No head info in payload!" << std::endl;
                 return;
             }
             
             std::cout << "[START_RECV] Received head info from node " << payload.dest_node << std::endl;
-            std::cout << "[START_RECV] Head: addr=0x" << std::hex << payload.head_info->head 
-                      << ", rkey=0x" << payload.head_info->head_rkey << std::dec << std::endl;
+            std::cout << "[START_RECV] Head: addr=0x" << std::hex << payload.head_info.head 
+                      << ", rkey=0x" << payload.head_info.head_rkey << std::dec << std::endl;
             
             try {
-                client.oob_recv_connect(recv_buf, payload.head_info->head, payload.head_info->head_rkey);
+                client.oob_recv_connect(recv_buf, payload.head_info.head, payload.head_info.head_rkey);
                 std::cout << "[START_RECV] Recv buffer connected to sender's head" << std::endl;
                 
                 client.oob_recv_start(recv_buf, 9);

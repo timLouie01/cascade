@@ -300,13 +300,23 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
         dbg_default_info("Receiving thread started without CPU pinning");
     }
 
+    std::cout << "[RECV_DEBUG] Starting receive loop, initial head=" << *reinterpret_cast<uint64_t*>(head.load()) 
+              << ", tail=" << *reinterpret_cast<uint64_t*>(tail.load()) << std::endl;
+
     while (stop_flag.load(std::memory_order_acquire) == 0) {
         void* head_ptr = head.load();
         void* tail_ptr = tail.load();
         uint64_t head_offset = *reinterpret_cast<uint64_t*>(head_ptr);
         uint64_t tail_offset = *reinterpret_cast<uint64_t*>(tail_ptr);
         
+        // Debug output for receiver
+        static int recv_debug_count = 0;
+        if (++recv_debug_count % 1000 == 0) {  // Print every 1000 iterations
+            std::cout << "[RECV_DEBUG] head=" << head_offset << ", tail=" << tail_offset << std::endl;
+        }
+        
         if (tail_offset != head_offset) {
+            std::cout << "[RECV_DATA] Processing data: head=" << head_offset << ", tail=" << tail_offset << std::endl;
             uint64_t buffer_start = reinterpret_cast<uint64_t>(buff);
             
             const uint64_t chunk_size = 5 * 1024; // 5 KiB

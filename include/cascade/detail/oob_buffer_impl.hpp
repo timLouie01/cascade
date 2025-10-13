@@ -105,8 +105,15 @@ inline void oob_send_buffer<CascadeTypes...>::advance_tail(size_t bytes_written)
     // Use volatile access for potentially RDMA-updated memory
     uint64_t current_send_tail = *reinterpret_cast<volatile uint64_t*>(send_tail_ptr);
     
-    // PROPER WRAP-AROUND: Use modulo to wrap around the ring
-    uint64_t new_send_tail = (current_send_tail + bytes_written) % ring_size;
+    // PROPER WRAP-AROUND: Match the expected wrap-around logic
+    uint64_t new_send_tail;
+    if (current_send_tail + bytes_written > ring_size) {
+        // If we would exceed the ring size, jump to the beginning
+        new_send_tail = bytes_written;
+    } else {
+        // Normal case: just advance the tail
+        new_send_tail = current_send_tail + bytes_written;
+    }
     *reinterpret_cast<volatile uint64_t*>(send_tail_ptr) = new_send_tail;
     
     std::cout << "[ADVANCE_TAIL] Advanced send_tail from " << current_send_tail 

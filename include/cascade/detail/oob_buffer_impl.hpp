@@ -221,10 +221,11 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
         // Debug output - print occasionally
         static int debug_count = 0;
         debug_count++;
-        if (debug_count <= 10 || debug_count % 1000 == 0) {
+        if (debug_count <= 10 || debug_count % 100 == 0) {
             std::cout << "[RDMA_DEBUG] Iteration " << debug_count 
                       << ": tail=" << tail_offset << ", send_tail=" << send_tail_offset 
                       << ", head=" << head_offset << " (WRAP ENABLED)" << std::endl;
+            std::cout << "[POINTER_DEBUG] tail_ptr=" << tail_ptr << ", send_tail_ptr=" << send_tail_ptr << std::endl;
             std::cout.flush();
         }
         
@@ -264,10 +265,7 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
                 if (available_data >= chunk_size) {
                     // We can send a full 5KiB chunk
                     data_size = chunk_size;
-                } else if (available_data > 0) {
-                    // Send whatever is available
-                    data_size = available_data;
-                } else {
+                }else {
                     // No data to send
                     std::this_thread::yield();
                     continue;
@@ -335,7 +333,14 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
             std::atomic_thread_fence(std::memory_order_release);
             
             // Update our local tail atomically with PROPER WRAP-AROUND
-            uint64_t new_tail = (tail_offset + data_size) % ring_size;
+            uint64_t new_tail;
+            if (tail_offset + data_size > ring_size) {
+                // If we would exceed the ring size, jump to the beginning
+                new_tail = data_size;
+            } else {
+                // Normal case: just advance the tail
+                new_tail = tail_offset + data_size;
+            }
             *reinterpret_cast<volatile uint64_t*>(tail_ptr) = new_tail;
             
             std::cout << "[RDMA_SEND] Updated local tail to " << new_tail << " (WRAP ENABLED)" << std::endl;

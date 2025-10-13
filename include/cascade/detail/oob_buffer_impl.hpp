@@ -496,9 +496,6 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
                 if (available_data >= chunk_size) {
                     // We can consume a full 5KiB chunk
                     consume_size = chunk_size;
-                } else if (available_data > 0) {
-                    // Consume whatever is available
-                    consume_size = available_data;
                 } else {
                     // No data to consume
                     std::this_thread::yield();
@@ -512,9 +509,6 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
                 if (space_to_end >= chunk_size) {
                     // We can fit 5KiB before wrap
                     consume_size = chunk_size;
-                } else if (space_to_end > 0) {
-                    // Consume what we can to the end, then wrap
-                    consume_size = space_to_end;
                 } else {
                     // No space, jump to front
                     head_offset = 0;
@@ -532,6 +526,7 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
                 if (subscription_mode == SubscriptionMode::ZERO_COPY_LOCK) {
                     // Zero-copy mode: provide direct access with lock/release mechanism
                     if (zero_copy_callback && !buffer_locked.load()) {
+                         std::cout << "[ZERO_COPY_RECV] ZERO COPY PROCESS ACQUIRE LOCK" << std::endl;
                         buffer_locked.store(true);
                         
                         auto release_func = [this]() {
@@ -548,6 +543,7 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
                         while (buffer_locked.load()) {
                             _mm_pause();
                         }
+                        std::cout << "[ZERO_COPY_RECV] ZERO COPY PROCESS UNLOCK" << std::endl;
                     }
                 } else if (subscription_mode == SubscriptionMode::MEMORY_COPY) {
                     // Memory copy mode: copy to registered memory
@@ -560,8 +556,15 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
                 }
             }
             
-            // PROPER WRAP-AROUND: Advance our head with modulo
-            uint64_t new_head = (head_offset + consume_size) % ring_size;
+            // PROPER WRAP-AROUND: Advance our head with jump-to-beginning logic
+            uint64_t new_head;
+            if (head_offset + consume_size > ring_size) {
+                // If we would exceed the ring size, jump to the beginning
+                new_head = consume_size;
+            } else {
+                // Normal case: just advance the head
+                new_head = head_offset + consume_size;
+            }
             *reinterpret_cast<volatile uint64_t*>(head_ptr) = new_head;
 
             // Notify sender of new head position via RDMA (use our registered head memory address)
@@ -575,6 +578,7 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
                 false,
                 false
             );
+            std::cout << "[RECV_DATA] Sent updated head=" << new_head << " to remote" << std::endl;
             
             // Ensure RDMA head update is ordered and visible
             std::atomic_thread_fence(std::memory_order_release);

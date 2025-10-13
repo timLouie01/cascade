@@ -234,21 +234,86 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
                       << ", send_tail=" << send_tail_offset << " (WRAP ENABLED)" << std::endl;
             std::cout.flush();
             
+            // Validate pointers before use
+            if (!head_ptr || !tail_ptr || !send_tail_ptr || !buff) {
+                std::cout << "[RDMA_ERROR] NULL pointer detected: head_ptr=" << head_ptr 
+                          << ", tail_ptr=" << tail_ptr << ", send_tail_ptr=" << send_tail_ptr 
+                          << ", buff=" << buff << std::endl;
+                std::this_thread::yield();
+                continue;
+            }
+            
+            // Validate offsets are within bounds
+            if (tail_offset >= ring_size || send_tail_offset >= ring_size) {
+                std::cout << "[RDMA_ERROR] Offset out of bounds: tail=" << tail_offset 
+                          << ", send_tail=" << send_tail_offset << ", ring_size=" << ring_size << std::endl;
+                std::this_thread::yield();
+                continue;
+            }
+            
             uint64_t buffer_start = reinterpret_cast<uint64_t>(buff);
             const uint64_t chunk_size = 5 * 1024; // 5 KiB
             uint64_t available_data;
             uint64_t data_size;
             uint64_t send_from_offset = tail_offset;  // Where to read data from our buffer
             
-            if (send_tail_offset > tail_offset) {
-                // Normal case: no wrap around
+            // Simple wrap-around logic: if we can't fit 5KiB, try from the front
+            if (send_tail_offset >= tail_offset) {
+                // Normal case: send_tail is ahead of tail
                 available_data = send_tail_offset - tail_offset;
-                data_size = std::min(available_data, chunk_size);
+                if (available_data >= chunk_size) {
+                    // We can send a full 5KiB chunk
+                    data_size = chunk_size;
+                } else if (available_data > 0) {
+                    // Send whatever is available
+                    data_size = available_data;
+                } else {
+                    // No data to send
+                    std::this_thread::yield();
+                    continue;
+                }
             } else {
-                // Wrap around case: send_tail has wrapped, tail hasn't
-                // Send from tail_offset to end of ring first
-                available_data = ring_size - tail_offset;
-                data_size = std::min(available_data, chunk_size);
+                // Wrap case: send_tail has wrapped around, tail hasn't
+                // Check if we have 5KiB from tail to end of buffer
+                uint64_t space_to_end = ring_size - tail_offset;
+                if (space_to_end >= chunk_size) {
+                    // We can fit 5KiB before wrap
+                    data_size = chunk_size;
+                } else {
+                    // Not enough space to end for 5KB, need to wrap around
+                    // But we can only wrap if there's space at the front (head > 0)
+                    if (head_offset > chunk_size) {
+                        // Safe to jump to front
+                        send_from_offset = 0;
+                        data_size = chunk_size;
+                        
+                        // Update tail to jump to front
+                        *reinterpret_cast<volatile uint64_t*>(tail_ptr) = 0;
+                        tail_offset = 0;
+                        
+                        std::cout << "[RDMA_SEND] Jumped tail to front, now sending from offset 0" << std::endl;
+                    } else {
+                        // Can't wrap yet, head is too close to front
+                        std::cout << "[RDMA_SEND] Cannot wrap, head too close to front (" << head_offset << ")" << std::endl;
+                        std::this_thread::yield();
+                        continue;
+                    }
+                }
+            }
+            
+            // Additional bounds checks for the RDMA operations
+            if (send_from_offset + data_size > ring_size) {
+                std::cout << "[RDMA_ERROR] Local read would exceed buffer: offset=" << send_from_offset 
+                          << ", size=" << data_size << ", ring_size=" << ring_size << std::endl;
+                std::this_thread::yield();
+                continue;
+            }
+            
+            if (tail_offset + data_size > ring_size) {
+                std::cout << "[RDMA_ERROR] Remote write would exceed buffer: offset=" << tail_offset 
+                          << ", size=" << data_size << ", ring_size=" << ring_size << std::endl;
+                std::this_thread::yield();
+                continue;
             }
             
             std::cout << "[RDMA_SEND] Sending " << data_size << " bytes from local offset " 
@@ -275,14 +340,14 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
             
             std::cout << "[RDMA_SEND] Updated local tail to " << new_tail << " (WRAP ENABLED)" << std::endl;
             
-            // Tell remote their new tail position (use registered memory)
+            // Tell remote their new tail position (use our registered tail memory address)
             this->service_client.template oob_memwrite<typename std::tuple_element<0, std::tuple<CascadeTypes...>>::type>(
                 this->dest_tail_addr,
                 this->recv_node,
                 this->dest_tail_r_key,
                 sizeof(uint64_t),
                 false,
-                reinterpret_cast<uint64_t>(tail_ptr),  // Use registered tail memory
+                reinterpret_cast<uint64_t>(tail_ptr),  // Use registered tail memory address
                 false,
                 false
             );
@@ -410,16 +475,46 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
             
             const uint64_t chunk_size = 5 * 1024; // 5 KiB
             uint64_t available_data;
+            uint64_t consume_size;
             
-            if (tail_offset > head_offset) {
-                // Normal case: tail is ahead of head
+            // Simple wrap-around logic: if we can't fit 5KiB, try from the front
+            if (tail_offset >= head_offset) {
+                // Normal case: tail is ahead of or equal to head
                 available_data = tail_offset - head_offset;
+                if (available_data >= chunk_size) {
+                    // We can consume a full 5KiB chunk
+                    consume_size = chunk_size;
+                } else if (available_data > 0) {
+                    // Consume whatever is available
+                    consume_size = available_data;
+                } else {
+                    // No data to consume
+                    std::this_thread::yield();
+                    std::this_thread::sleep_for(1ms);
+                    continue;
+                }
             } else {
-                // Wrap around case: tail has wrapped, consume from head to end first
-                available_data = ring_size - head_offset;
+                // Wrap case: tail has wrapped around, head hasn't
+                // Check if we have 5KiB from head to end of buffer
+                uint64_t space_to_end = ring_size - head_offset;
+                if (space_to_end >= chunk_size) {
+                    // We can fit 5KiB before wrap
+                    consume_size = chunk_size;
+                } else if (space_to_end > 0) {
+                    // Consume what we can to the end, then wrap
+                    consume_size = space_to_end;
+                } else {
+                    // No space, jump to front
+                    head_offset = 0;
+                    *reinterpret_cast<volatile uint64_t*>(head_ptr) = 0;
+                    
+                    // Now calculate available data from front
+                    available_data = tail_offset;
+                    consume_size = std::min(available_data, chunk_size);
+                    
+                    std::cout << "[RECV_DATA] Jumped head to front, now consuming from offset 0" << std::endl;
+                }
             }
-            
-            uint64_t consume_size = std::min(available_data, chunk_size);
             
             if (has_subscriber) {
                 if (subscription_mode == SubscriptionMode::ZERO_COPY_LOCK) {
@@ -457,13 +552,14 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
             uint64_t new_head = (head_offset + consume_size) % ring_size;
             *reinterpret_cast<volatile uint64_t*>(head_ptr) = new_head;
 
+            // Notify sender of new head position via RDMA (use our registered head memory address)
             this->service_client.template oob_memwrite<typename std::tuple_element<0, std::tuple<CascadeTypes...>>::type>(
                 this->head_addr,
                 this->send_node,
                 this->head_r_key,
                 sizeof(uint64_t),
                 false,
-                reinterpret_cast<uint64_t>(head_ptr),  // Address of our head memory location
+                reinterpret_cast<uint64_t>(head_ptr),  // Use registered head memory address
                 false,
                 false
             );

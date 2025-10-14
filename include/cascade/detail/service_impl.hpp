@@ -895,7 +895,6 @@ std::unique_ptr<oob_send_buffer<CascadeTypes...>> ServiceClient<CascadeTypes...>
     oob_register_mem_ex(tail, sizeof(uint64_t),attr);
     
     auto send_buff = oob_send_buffer<CascadeTypes...>::create(buffer, head, tail, remote_node, recv_udl, bytes_alloc, *this);
-    send_buff->start();
     return send_buff;
 }
 
@@ -940,7 +939,6 @@ std::unique_ptr<oob_recv_buffer<CascadeTypes...>> ServiceClient<CascadeTypes...>
     oob_register_mem_ex(tail, sizeof(uint64_t),attr);
     
     auto recv_buff = oob_recv_buffer<CascadeTypes...>::create(buffer, head, tail, remote_node, send_udl, bytes_alloc, *this);
-    recv_buff->start();  // Use default (no pinning) - user can call oob_recv_start() later with specific core
     return recv_buff;
 }
 

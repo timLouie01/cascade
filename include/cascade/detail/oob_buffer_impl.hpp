@@ -229,24 +229,17 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
     std::cout << "[SENDER_THREAD] Starting sender thread (WRAP-AROUND ENABLED)!" << std::endl;
     std::cout.flush();
 
+    // CRITICAL FIX: Get volatile pointers ONCE before the loop
+    // The pointers themselves don't change!!! Only the values they point to
+    volatile uint64_t* rdma_head_ptr = reinterpret_cast<volatile uint64_t*>(head.load());
+    volatile uint64_t* rdma_tail_ptr = reinterpret_cast<volatile uint64_t*>(tail.load());
+    volatile uint64_t* rdma_send_tail_ptr = reinterpret_cast<volatile uint64_t*>(send_tail.load());
+
     while (stop_flag.load(std::memory_order_acquire) == 0) {
-        void* head_ptr = head.load();
-        void* tail_ptr = tail.load();
-        void* send_tail_ptr = send_tail.load();
-        
-        // Force memory barrier for RDMA-updated memory
-        std::atomic_thread_fence(std::memory_order_seq_cst);
-        
-        // Read directly from RDMA-updated memory (no cache for now)
-        volatile uint64_t* rdma_head_ptr = reinterpret_cast<volatile uint64_t*>(head_ptr);
+        // Read the RDMA-updated values directly through volatile pointers
         uint64_t head_offset = *rdma_head_ptr;
-        
-        // TODO: Optimize with cache later once we confirm RDMA updates work
-        // head_offset_cache.store(head_offset, std::memory_order_release);
-        // uint64_t head_offset = head_offset_cache.load(std::memory_order_acquire);
-        
-        uint64_t tail_offset = *reinterpret_cast<volatile uint64_t*>(tail_ptr);
-        uint64_t send_tail_offset = *reinterpret_cast<volatile uint64_t*>(send_tail_ptr);
+        uint64_t tail_offset = *rdma_tail_ptr;
+        uint64_t send_tail_offset = *rdma_send_tail_ptr;
         
         // DEBUG: Print head value EVERY iteration
         static int debug_count = 0;
@@ -261,9 +254,9 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
             std::cout.flush();
             
             // Validate pointers before use
-            if (!head_ptr || !tail_ptr || !send_tail_ptr || !buff) {
-                std::cout << "[RDMA_ERROR] NULL pointer detected: head_ptr=" << head_ptr 
-                          << ", tail_ptr=" << tail_ptr << ", send_tail_ptr=" << send_tail_ptr 
+            if (!rdma_head_ptr || !rdma_tail_ptr || !rdma_send_tail_ptr || !buff) {
+                std::cout << "[RDMA_ERROR] NULL pointer detected: head_ptr=" << rdma_head_ptr 
+                          << ", tail_ptr=" << rdma_tail_ptr << ", send_tail_ptr=" << rdma_send_tail_ptr 
                           << ", buff=" << buff << std::endl;
                 std::this_thread::yield();
                 continue;
@@ -311,7 +304,7 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
                         data_size = chunk_size;
                         
                         // Update tail to jump to front
-                        *reinterpret_cast<volatile uint64_t*>(tail_ptr) = 0;
+                        *rdma_tail_ptr = 0;
                         tail_offset = 0;
                         
                         std::cout << "[RDMA_SEND] Jumped tail to front, now sending from offset 0" << std::endl;
@@ -366,7 +359,7 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
                 // Normal case: just advance the tail
                 new_tail = tail_offset + data_size;
             }
-            *reinterpret_cast<volatile uint64_t*>(tail_ptr) = new_tail;
+            *rdma_tail_ptr = new_tail;
             
             std::cout << "[RDMA_SEND] Updated local tail to " << new_tail << " (WRAP ENABLED)" << std::endl;
             
@@ -377,7 +370,7 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
                 this->dest_tail_r_key,
                 sizeof(uint64_t),
                 false,
-                reinterpret_cast<uint64_t>(tail_ptr),  // Use registered tail memory address
+                reinterpret_cast<uint64_t>(rdma_tail_ptr),  // Use registered tail memory address
                 false,
                 false
             );
@@ -482,19 +475,17 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
         dbg_default_info("Receiving thread started without CPU pinning");
     }
 
-    std::cout << "[RECV_DEBUG] Starting receive loop, initial head=" << *reinterpret_cast<uint64_t*>(head.load()) 
-              << ", tail=" << *reinterpret_cast<uint64_t*>(tail.load()) << std::endl;
+    // CRITICAL FIX: Get volatile pointers ONCE before the loop
+    volatile uint64_t* rdma_head_ptr = reinterpret_cast<volatile uint64_t*>(head.load());
+    volatile uint64_t* rdma_tail_ptr = reinterpret_cast<volatile uint64_t*>(tail.load());
+
+    std::cout << "[RECV_DEBUG] Starting receive loop, initial head=" << *rdma_head_ptr 
+              << ", tail=" << *rdma_tail_ptr << std::endl;
 
     while (stop_flag.load(std::memory_order_acquire) == 0) {
-        void* head_ptr = head.load();
-        void* tail_ptr = tail.load();
-        
-        // Force memory barrier to ensure fresh reads of RDMA-updated memory
-        std::atomic_thread_fence(std::memory_order_acquire);
-        
-        // Read with volatile to prevent caching optimization for RDMA-updated values
-        uint64_t head_offset = *reinterpret_cast<volatile uint64_t*>(head_ptr);
-        uint64_t tail_offset = *reinterpret_cast<volatile uint64_t*>(tail_ptr);
+        // Read the RDMA-updated values directly through volatile pointers
+        uint64_t head_offset = *rdma_head_ptr;
+        uint64_t tail_offset = *rdma_tail_ptr;
         
         // Debug output for receiver
         static int recv_debug_count = 0;
@@ -533,7 +524,7 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
                 } else {
                     // No space, jump to front
                     head_offset = 0;
-                    *reinterpret_cast<volatile uint64_t*>(head_ptr) = 0;
+                    *rdma_head_ptr = 0;
                     
                     // Now calculate available data from front
                     available_data = tail_offset;
@@ -586,13 +577,13 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
                 // Normal case: just advance the head
                 new_head = head_offset + consume_size;
             }
-            *reinterpret_cast<volatile uint64_t*>(head_ptr) = new_head;
+            *rdma_head_ptr = new_head;
 
             // Verify what we're about to send
-            uint64_t verify_value = *reinterpret_cast<volatile uint64_t*>(head_ptr);
+            uint64_t verify_value = *rdma_head_ptr;
             std::cout << "[RECV_RDMA_WRITE] Writing head=" << new_head 
                       << " (verified value at head_ptr=" << verify_value << ")"
-                      << " FROM local head_ptr=0x" << std::hex << reinterpret_cast<uint64_t>(head_ptr)
+                      << " FROM local head_ptr=0x" << std::hex << reinterpret_cast<uint64_t>(rdma_head_ptr)
                       << " TO remote head_addr=0x" << this->head_addr << std::dec
                       << " on node " << this->send_node 
                       << " rkey=0x" << std::hex << this->head_r_key << std::dec << std::endl;
@@ -605,7 +596,7 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
                 this->head_r_key,
                 sizeof(uint64_t),
                 false,
-                reinterpret_cast<uint64_t>(head_ptr),  // Use registered head memory address
+                reinterpret_cast<uint64_t>(rdma_head_ptr),  // Use registered head memory address
                 false,
                 true  // MAKE IT SYNCHRONOUS TO ENSURE COMPLETION
             );

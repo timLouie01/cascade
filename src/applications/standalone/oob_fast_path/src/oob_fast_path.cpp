@@ -89,16 +89,7 @@ public:
         if (tokens[1] == "prepare_send") {
             // Sender - prepare to send data
             const uint64_t ring_size = 64 * 1024; // 64KB ring buffer
-			// init wrong node
             uint32_t dest_node = 1;
-            
-
-            if (value_ptr) {
-                const ObjectWithStringKey* object = dynamic_cast<const ObjectWithStringKey*>(value_ptr);
-                if (object && object->blob.size >= sizeof(uint32_t)) {
-                    std::memcpy(&dest_node, object->blob.bytes, sizeof(uint32_t));
-                }
-            }
             
             
             std::cout << "[PREPARE_SEND] Creating OOB send buffer for node " << dest_node << std::endl;
@@ -129,14 +120,6 @@ public:
             // Receiver - prepare to receive data
             const uint64_t ring_size = 64 * 1024; // 64KB ring buffer
             uint32_t send_node = 0;
-            
-            // Extract sender node from the payload
-            if (value_ptr) {
-                const ObjectWithStringKey* object = dynamic_cast<const ObjectWithStringKey*>(value_ptr);
-                if (object && object->blob.size >= sizeof(uint32_t)) {
-                    std::memcpy(&send_node, object->blob.bytes, sizeof(uint32_t));
-                }
-            }
             
             std::cout << "[PREPARE_RECV] Creating OOB recv buffer for node " << send_node << std::endl;
             
@@ -213,9 +196,9 @@ public:
                                       payload.buffer_info.buffer_rkey, payload.tail_info.tail_rkey);
                 std::cout << "[CONNECT] Send buffer connected" << std::endl;
                 
-                // Start the send buffer
-                client.oob_send_start(send_buf);
-                std::cout << "[CONNECT] Send buffer started" << std::endl;
+                // Start the send buffer with CPU pinning to core 10
+                client.oob_send_start(send_buf, 10);
+                std::cout << "[CONNECT] Send buffer RDMA thread started on core 10" << std::endl;
                 
                 // Notify receiver to connect
                 auto send_info = client.oob_send_get_info(send_buf);
@@ -236,16 +219,17 @@ public:
                 
                 // Start sending data in a separate thread with proper yielding
                 std::thread([this, &client]() {
-                    // Pin to core 9 as requested
+                    // Pin to core 12
                     cpu_set_t set;
                     CPU_ZERO(&set);
-                    CPU_SET(9, &set);
+                    CPU_SET(12, &set);
                     pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
                     
                     // Set thread name for debugging
                     pthread_setname_np(pthread_self(), "OOB_SEND_APP");
                     
-                    // Give Derecho threads time to stabilize before starting intensive work
+                    std::cout << "[SEND_APP] Application sender thread pinned to core 12" << std::endl;
+
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
                     
                     this->start_sending_data(client);
@@ -289,8 +273,8 @@ public:
                 client.oob_recv_connect(recv_buf, payload.head_info.head, payload.head_info.head_rkey);
                 std::cout << "[START_RECV] Recv buffer connected to sender's head" << std::endl;
                 
-                client.oob_recv_start(recv_buf, 9);
-                std::cout << "[START_RECV] Recv buffer started with receiving thread on core 9" << std::endl;
+                client.oob_recv_start(recv_buf, 11);
+                std::cout << "[START_RECV] Recv buffer RDMA thread started on core 11" << std::endl;
                 
                 // Register zero-copy lock subscriber for data processing
                 recv_buf->set_zero_copy_subscriber(
@@ -316,7 +300,7 @@ private:
         const auto start_time = std::chrono::high_resolution_clock::now();
         
         for (int i = 0; i < num_messages; ++i) {
-            // Yield to other threads every 50 messages to prevent starving Derecho
+            // Yield to other threads every 50 messages
             if (i % 50 == 0) {
                 std::this_thread::yield();
                 // Also sleep briefly every 1000 messages for better cooperation

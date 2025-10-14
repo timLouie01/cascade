@@ -242,17 +242,12 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
         uint64_t tail_offset = *reinterpret_cast<volatile uint64_t*>(tail_ptr);
         uint64_t send_tail_offset = *reinterpret_cast<volatile uint64_t*>(send_tail_ptr);
         
-        // Debug output - print occasionally
+        // DEBUG: Print head value EVERY iteration to see if it ever changes
         static int debug_count = 0;
         debug_count++;
-        if (debug_count <= 10 || debug_count % 100 == 0) {
-            std::cout << "[RDMA_DEBUG] Iteration " << debug_count 
-                      << ": tail=" << tail_offset << ", send_tail=" << send_tail_offset 
-                      << ", head=" << head_offset << ", ring_size=" << ring_size << " (WRAP ENABLED)" << std::endl;
-            std::cout << "[POINTER_DEBUG] tail_ptr=" << tail_ptr << ", send_tail_ptr=" << send_tail_ptr 
-                      << ", head_ptr=" << head_ptr << ", *head_ptr=" << head_offset << std::endl;
-            std::cout.flush();
-        }
+        std::cout << "[SENDER_HEAD_CHECK #" << debug_count << "] head=" << head_offset 
+                  << " (head_ptr=" << head_ptr << ")" << std::endl;
+        std::cout.flush();
         
         // Send data from tail to send_tail (data written but not yet sent)
         if (send_tail_offset != tail_offset) {

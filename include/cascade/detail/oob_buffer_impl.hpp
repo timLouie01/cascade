@@ -234,19 +234,24 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
         void* tail_ptr = tail.load();
         void* send_tail_ptr = send_tail.load();
         
-        // Force memory barrier for consistency
-        std::atomic_thread_fence(std::memory_order_acquire);
+        // Force memory barrier for RDMA-updated memory
+        std::atomic_thread_fence(std::memory_order_seq_cst);
         
-        // Use volatile to prevent caching optimization for RDMA-updated memory
-        uint64_t head_offset = *reinterpret_cast<volatile uint64_t*>(head_ptr);
+        // Read directly from RDMA-updated memory (no cache for now)
+        volatile uint64_t* rdma_head_ptr = reinterpret_cast<volatile uint64_t*>(head_ptr);
+        uint64_t head_offset = *rdma_head_ptr;
+        
+        // TODO: Optimize with cache later once we confirm RDMA updates work
+        // head_offset_cache.store(head_offset, std::memory_order_release);
+        // uint64_t head_offset = head_offset_cache.load(std::memory_order_acquire);
+        
         uint64_t tail_offset = *reinterpret_cast<volatile uint64_t*>(tail_ptr);
         uint64_t send_tail_offset = *reinterpret_cast<volatile uint64_t*>(send_tail_ptr);
         
-        // DEBUG: Print head value EVERY iteration to see if it ever changes
+        // DEBUG: Print head value EVERY iteration
         static int debug_count = 0;
         debug_count++;
-        std::cout << "[SENDER_HEAD_CHECK #" << debug_count << "] head=" << head_offset 
-                  << " (head_ptr=" << head_ptr << ")" << std::endl;
+        std::cout << "[SENDER_HEAD_CHECK #" << debug_count << "] head=" << head_offset << std::endl;
         std::cout.flush();
         
         // Send data from tail to send_tail (data written but not yet sent)
@@ -432,8 +437,11 @@ oob_recv_buffer<CascadeTypes...>::create(void* buff,
 
 template<typename... CascadeTypes>
 inline void oob_recv_buffer<CascadeTypes...>::setup_connection(uint64_t head_addr,  std::uint64_t head_r_key) {
+    std::cout << "[RECV_SETUP] Storing sender's head address: 0x" << std::hex << head_addr 
+              << ", rkey: 0x" << head_r_key << std::dec << std::endl;
     this->head_addr = head_addr;
     this->head_r_key = head_r_key;
+    std::cout << "[RECV_SETUP] Confirmed this->head_addr = 0x" << std::hex << this->head_addr << std::dec << std::endl;
 }
 template<typename... CascadeTypes>
 inline oob_recv_buffer<CascadeTypes...>::~oob_recv_buffer() {

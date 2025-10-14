@@ -203,6 +203,12 @@ public:
                 // Notify receiver to connect
                 auto send_info = client.oob_send_get_info(send_buf);
                 Head head_info = send_info;
+                
+                // DEBUG: Print what we're sending
+                std::cout << "[SENDER_PREP] My actual head pointer address that I'm reading from: 0x" 
+                          << std::hex << reinterpret_cast<uint64_t>(send_buf->get_head_actual_ptr()) << std::dec << std::endl;
+                std::cout << "[SENDER_PREP] Sending to receiver head address: 0x" 
+                          << std::hex << head_info.head << ", rkey: 0x" << head_info.head_rkey << std::dec << std::endl;
                 uint32_t my_node_id = client.get_my_id();
                 ConnectionPayload response_payload{};
                 response_payload.head_info = head_info;

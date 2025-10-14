@@ -36,6 +36,7 @@ public:
   
   // Public getters for ServiceClient access
   uint64_t get_head() const { return reinterpret_cast<uint64_t>(head.load()); }
+  void* get_head_actual_ptr() const { return head.load(); }  // For debugging
   uint64_t get_head_r_key() const { return send_head_r_key; }
   
   // Check available space in the ring buffer
@@ -49,7 +50,8 @@ public:
 
 private:
   void* buff {nullptr};
-  std::atomic<void*> head{nullptr};
+  std::atomic<void*> head{nullptr};  // Points to RDMA-registered memory for remote updates
+  std::atomic<uint64_t> head_offset_cache{0};  // Local cache of head value for fast CPU reads
   std::atomic<void*> tail{nullptr};
   std::atomic<void*> send_tail{nullptr};  // New: where app writes new data
   std::uint64_t send_head_r_key{};

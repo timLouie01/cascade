@@ -9,6 +9,7 @@
 #include <cascade/config.h>
 #include <cascade/data_flow_graph.hpp>
 #include <chrono>
+#include <sys/mman.h>  // For mlock()
 
 using namespace std::chrono_literals;
 
@@ -873,6 +874,20 @@ std::unique_ptr<oob_send_buffer<CascadeTypes...>> ServiceClient<CascadeTypes...>
         throw std::bad_alloc();
     }
     
+    // CRITICAL: Lock pages in RAM and touch them to establish physical mapping
+    // This is essential for RDMA to work correctly with cache coherency
+    mlock(buffer, bytes_alloc);
+    mlock(head, sizeof(uint64_t));
+    mlock(tail, sizeof(uint64_t));
+    
+    // Warm the pages by touching them
+    volatile char* buffer_bytes = reinterpret_cast<volatile char*>(buffer);
+    for (size_t i = 0; i < bytes_alloc; i += 4096) {
+        buffer_bytes[i] = 0;
+    }
+    *reinterpret_cast<volatile uint64_t*>(head) = 0;
+    *reinterpret_cast<volatile uint64_t*>(tail) = 0;
+    
     derecho::memory_attribute_t attr;
     attr.type = derecho::memory_attribute_t::SYSTEM;
     oob_register_mem_ex(buffer, bytes_alloc, attr);
@@ -904,6 +919,19 @@ std::unique_ptr<oob_recv_buffer<CascadeTypes...>> ServiceClient<CascadeTypes...>
         free(head);
         throw std::bad_alloc();
     }
+    
+    // CRITICAL: Lock pages in RAM and touch them to establish physical mapping
+    mlock(buffer, bytes_alloc);
+    mlock(head, sizeof(uint64_t));
+    mlock(tail, sizeof(uint64_t));
+    
+    // Warm the pages by touching them
+    volatile char* buffer_bytes = reinterpret_cast<volatile char*>(buffer);
+    for (size_t i = 0; i < bytes_alloc; i += 4096) {
+        buffer_bytes[i] = 0;
+    }
+    *reinterpret_cast<volatile uint64_t*>(head) = 0;
+    *reinterpret_cast<volatile uint64_t*>(tail) = 0;
     
     derecho::memory_attribute_t attr;
     attr.type = derecho::memory_attribute_t::SYSTEM;

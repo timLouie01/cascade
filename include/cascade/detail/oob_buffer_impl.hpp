@@ -193,8 +193,9 @@ inline bool oob_send_buffer<CascadeTypes...>::can_fit(size_t size) const {
     return get_available_space() >= size;
 }
 template<typename... CascadeTypes>
-inline void oob_send_buffer<CascadeTypes...>::start() {
-    if (sending_thread.joinable()) return;                 
+inline void oob_send_buffer<CascadeTypes...>::start(int cpu_core) {
+    if (sending_thread.joinable()) return;
+    cpu_core_id = cpu_core;  // Store the core to pin to
     stop_flag.store(0, std::memory_order_release);
     sending_thread = std::thread(&oob_send_buffer<CascadeTypes...>::run_send, this);
 }
@@ -208,6 +209,22 @@ inline void oob_send_buffer<CascadeTypes...>::stop() {
 template<typename... CascadeTypes>
 inline void oob_send_buffer<CascadeTypes...>::run_send() {
     using namespace std::chrono_literals;
+
+    // Pin this sending thread to specified core if requested
+    if (cpu_core_id >= 0) {
+        cpu_set_t cpuset;
+        CPU_ZERO(&cpuset);
+        CPU_SET(cpu_core_id, &cpuset);
+        int rc = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+        if (rc != 0) {
+            // Log warning but continue - this is not critical for functionality
+            std::cerr << "[SENDER_THREAD] Failed to set CPU affinity to core " << cpu_core_id << ": " << strerror(rc) << std::endl;
+        } else {
+            std::cout << "[SENDER_THREAD] Pinned to core " << cpu_core_id << std::endl;
+        }
+    } else {
+        std::cout << "[SENDER_THREAD] Started without CPU pinning" << std::endl;
+    }
 
     std::cout << "[SENDER_THREAD] Starting sender thread (WRAP-AROUND ENABLED)!" << std::endl;
     std::cout.flush();
@@ -231,8 +248,9 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
         if (debug_count <= 10 || debug_count % 100 == 0) {
             std::cout << "[RDMA_DEBUG] Iteration " << debug_count 
                       << ": tail=" << tail_offset << ", send_tail=" << send_tail_offset 
-                      << ", head=" << head_offset << " (WRAP ENABLED)" << std::endl;
-            std::cout << "[POINTER_DEBUG] tail_ptr=" << tail_ptr << ", send_tail_ptr=" << send_tail_ptr << std::endl;
+                      << ", head=" << head_offset << ", ring_size=" << ring_size << " (WRAP ENABLED)" << std::endl;
+            std::cout << "[POINTER_DEBUG] tail_ptr=" << tail_ptr << ", send_tail_ptr=" << send_tail_ptr 
+                      << ", head_ptr=" << head_ptr << ", *head_ptr=" << head_offset << std::endl;
             std::cout.flush();
         }
         

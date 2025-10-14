@@ -918,8 +918,8 @@ std::unique_ptr<oob_recv_buffer<CascadeTypes...>> ServiceClient<CascadeTypes...>
 
 // OOB buffer control methods
 template <typename... CascadeTypes>
-void ServiceClient<CascadeTypes...>::oob_send_start(std::unique_ptr<oob_send_buffer<CascadeTypes...>>& send_buf) {
-    send_buf->start();
+void ServiceClient<CascadeTypes...>::oob_send_start(std::unique_ptr<oob_send_buffer<CascadeTypes...>>& send_buf, int cpu_core) {
+    send_buf->start(cpu_core);
 }
 
 template <typename... CascadeTypes>

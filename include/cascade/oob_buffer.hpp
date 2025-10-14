@@ -31,7 +31,7 @@ public:
   void setup_connection(uint64_t buffer_addr, uint64_t tail_addr, std::uint64_t buff_r_key, std::uint64_t tail_r_key);
 
   void advance_tail(size_t bytes_written);
-  void start();
+  void start(int cpu_core = -1);  // -1 means no CPU pinning, >=0 pins to that core
   void stop();
   
   // Public getters for ServiceClient access
@@ -63,6 +63,7 @@ private:
   ServiceClient<CascadeTypes...>& service_client;
   std::thread sending_thread;
   std::atomic<bool> stop_flag{false};
+  int cpu_core_id{-1};  // CPU core to pin sending thread to (-1 = no pinning)
   uint64_t cached_write_location{0};  // Cached write location for fast access
   oob_send_buffer(void* buff,
                   void* head, 

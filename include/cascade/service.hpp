@@ -915,7 +915,7 @@ namespace cascade {
 
     void oob_recv_connect(std::unique_ptr<oob_recv_buffer<CascadeTypes...>>& recv_buf, uint64_t head_addr,  std::uint64_t head_r_key);
 
-    void oob_send_start(std::unique_ptr<oob_send_buffer<CascadeTypes...>>& send_buf);
+    void oob_send_start(std::unique_ptr<oob_send_buffer<CascadeTypes...>>& send_buf, int cpu_core = -1);
 
     void oob_recv_start(std::unique_ptr<oob_recv_buffer<CascadeTypes...>>& recv_buf, int cpu_core = -1);
     

@@ -580,6 +580,16 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
             }
             *reinterpret_cast<volatile uint64_t*>(head_ptr) = new_head;
 
+            // Verify what we're about to send
+            uint64_t verify_value = *reinterpret_cast<volatile uint64_t*>(head_ptr);
+            std::cout << "[RECV_RDMA_WRITE] Writing head=" << new_head 
+                      << " (verified value at head_ptr=" << verify_value << ")"
+                      << " FROM local head_ptr=0x" << std::hex << reinterpret_cast<uint64_t>(head_ptr)
+                      << " TO remote head_addr=0x" << this->head_addr << std::dec
+                      << " on node " << this->send_node 
+                      << " rkey=0x" << std::hex << this->head_r_key << std::dec << std::endl;
+            std::cout.flush();
+
             // Notify sender of new head position via RDMA (use our registered head memory address)
             this->service_client.template oob_memwrite<typename std::tuple_element<0, std::tuple<CascadeTypes...>>::type>(
                 this->head_addr,
@@ -589,9 +599,10 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
                 false,
                 reinterpret_cast<uint64_t>(head_ptr),  // Use registered head memory address
                 false,
-                false
+                true  // MAKE IT SYNCHRONOUS TO ENSURE COMPLETION
             );
-            std::cout << "[RECV_DATA] Sent updated head=" << new_head << " to remote" << std::endl;
+            std::cout << "[RECV_DATA] RDMA write COMPLETED (synchronous) for head=" << new_head << std::endl;
+            std::cout.flush();
             
             // Ensure RDMA head update is ordered and visible
             std::atomic_thread_fence(std::memory_order_release);

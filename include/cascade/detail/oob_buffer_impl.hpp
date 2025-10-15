@@ -309,8 +309,8 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
                         data_size = chunk_size;
                         
                         // Update tail to jump to front
-                        // *rdma_tail_ptr = 0;
-                        // tail_offset = 0;
+                        *rdma_tail_ptr = 0;
+                        tail_offset = 0;
                         
                         // std::cout << "[RDMA_SEND] Jumped tail to front, now sending from offset 0" << std::endl;
                     } else {

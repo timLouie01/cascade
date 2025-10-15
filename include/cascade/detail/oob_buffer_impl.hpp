@@ -123,40 +123,43 @@ inline void oob_send_buffer<CascadeTypes...>::advance_tail(size_t bytes_written)
 
 template<typename... CascadeTypes>
 inline size_t oob_send_buffer<CascadeTypes...>::get_available_space() const {
-    void* head_ptr = head.load();
-    void* send_tail_ptr = send_tail.load();
-    
+    // void* head_ptr = head.load();
+    // void* send_tail_ptr = send_tail.load();
+
+    volatile uint64_t* rdma_head_ptr = reinterpret_cast<volatile uint64_t*>(head.load());
+    volatile uint64_t* rdma_tail_ptr = reinterpret_cast<volatile uint64_t*>(tail.load());
+    volatile uint64_t* rdma_send_tail_ptr = reinterpret_cast<volatile uint64_t*>(send_tail.load());
     // Force memory barrier to get fresh RDMA-updated values
     std::atomic_thread_fence(std::memory_order_acquire);
     
     // Use volatile access for memory that may be updated by RDMA
-    uint64_t head_offset = *reinterpret_cast<volatile uint64_t*>(head_ptr);
-    uint64_t send_tail_offset = *reinterpret_cast<volatile uint64_t*>(send_tail_ptr);
+    // uint64_t head_offset = *reinterpret_cast<volatile uint64_t*>(head_ptr);
+    // uint64_t send_tail_offset = *reinterpret_cast<volatile uint64_t*>(send_tail_ptr);
     
     // Validate offsets are within ring bounds
-    if (head_offset >= ring_size || send_tail_offset >= ring_size) {
-        std::cout << "[SPACE_ERROR] Invalid offsets: head=" << head_offset 
-                  << ", send_tail=" << send_tail_offset << ", ring_size=" << ring_size << std::endl;
+    if (*rdma_head_ptr >= ring_size || *rdma_tail_ptr >= ring_size) {
+        std::cout << "[SPACE_ERROR] Invalid offsets: head=" << *rdma_head_ptr 
+                  << ", send_tail=" << *rdma_tail_ptr << ", ring_size=" << ring_size << std::endl;
         return 0;  // Conservative: no space available if offsets are corrupted
     }
     
     size_t available_space;
-    if (send_tail_offset >= head_offset) {
+    if (*rdma_send_tail_ptr >= *rdma_head_ptr) {
         // Normal case: send_tail is ahead of head
         // Available space = (end of ring - send_tail) + (head - start) - 1
-        available_space = (ring_size - send_tail_offset) + head_offset;
+        available_space = (ring_size - *rdma_send_tail_ptr) + *rdma_head_ptr;
         if (available_space > 0) available_space -= 1;  // Reserve 1 byte to distinguish full from empty
     } else {
         // Wrap case: head is ahead of send_tail 
         // Available space = head - send_tail - 1
-        available_space = head_offset - send_tail_offset;
+        available_space = *rdma_head_ptr - *rdma_send_tail_ptr;
         if (available_space > 0) available_space -= 1;  // Reserve 1 byte to distinguish full from empty
     }
     
     // Debug output occasionally
     static int space_debug_count = 0;
     if (++space_debug_count % 100 == 0) {
-        std::cout << "[SPACE_DEBUG] head=" << head_offset << ", send_tail=" << send_tail_offset 
+        std::cout << "[SPACE_DEBUG] head=" << *rdma_head_ptr << ", send_tail=" << *rdma_send_tail_ptr 
                   << ", available=" << available_space << " (WRAP ENABLED)" << std::endl;
     }
     

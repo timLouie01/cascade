@@ -242,9 +242,9 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
         _mm_mfence();  // Memory fence to ensure flush completes
         
         // Read the RDMA-updated values directly through volatile pointers
-        uint64_t head_offset = *rdma_head_ptr;
-        uint64_t tail_offset = *rdma_tail_ptr;
-        uint64_t send_tail_offset = *rdma_send_tail_ptr;
+        volatile uint64_t head_offset = *rdma_head_ptr;
+        volatile uint64_t tail_offset = *rdma_tail_ptr;
+        volatile uint64_t send_tail_offset = *rdma_send_tail_ptr;
         
         // DEBUG: Print head value EVERY iteration
         static int debug_count = 0;
@@ -489,8 +489,8 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
 
     while (stop_flag.load(std::memory_order_acquire) == 0) {
         // Read the RDMA-updated values directly through volatile pointers
-        uint64_t head_offset = *rdma_head_ptr;
-        uint64_t tail_offset = *rdma_tail_ptr;
+        volatile uint64_t head_offset = *rdma_head_ptr;
+        volatile uint64_t tail_offset = *rdma_tail_ptr;
         
         // Debug output for receiver
         static int recv_debug_count = 0;

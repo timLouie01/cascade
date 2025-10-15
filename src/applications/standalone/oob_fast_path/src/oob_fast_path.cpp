@@ -190,17 +190,20 @@ public:
             }
             
             try {
+                // // Setup connection for send buffer using the structured data
+                // client.oob_send_connect(send_buf, 
+                //                       payload.buffer_info.buffer, payload.tail_info.tail, 
+                //                       payload.buffer_info.buffer_rkey, payload.tail_info.tail_rkey);
+                // std::cout << "[CONNECT] Send buffer connected" << std::endl;
+                
+                // DON'T start the RDMA thread yet! Wait for receiver to be ready
                 // Setup connection for send buffer using the structured data
                 client.oob_send_connect(send_buf, 
                                       payload.buffer_info.buffer, payload.tail_info.tail, 
                                       payload.buffer_info.buffer_rkey, payload.tail_info.tail_rkey);
-                std::cout << "[CONNECT] Send buffer connected" << std::endl;
+                std::cout << "[CONNECT] Send buffer connected (RDMA thread NOT started yet)" << std::endl;
                 
-                // Start the send buffer with CPU pinning to core 10
-                client.oob_send_start(send_buf, 10);
-                std::cout << "[CONNECT] Send buffer RDMA thread started on core 10" << std::endl;
-                
-                // Notify receiver to connect
+                // Get head info to send to receiver
                 auto send_info = client.oob_send_get_info(send_buf);
                 Head head_info = send_info;
                 
@@ -222,24 +225,7 @@ public:
                 
                 std::cout << "[CONNECT] Notified receiver to start with head info: addr=0x" 
                           << std::hex << head_info.head << ", rkey=0x" << head_info.head_rkey << std::dec << std::endl;
-                
-                // Start sending data in a separate thread with proper yielding
-                std::thread([this, &client]() {
-                    // Pin to core 12
-                    cpu_set_t set;
-                    CPU_ZERO(&set);
-                    CPU_SET(12, &set);
-                    pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
-                    
-                    // Set thread name for debugging
-                    pthread_setname_np(pthread_self(), "OOB_SEND_APP");
-                    
-                    std::cout << "[SEND_APP] Application sender thread pinned to core 12" << std::endl;
-
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                    
-                    this->start_sending_data(client);
-                }).detach();
+                std::cout << "[CONNECT] WAITING for receiver acknowledgment before starting RDMA..." << std::endl;
                 
             } catch (const std::exception& e) {
                 std::cout << "[ERROR] Exception in connect: " << e.what() << std::endl;
@@ -289,8 +275,53 @@ public:
                     });
                 std::cout << "[START_RECV] Registered zero-copy lock subscriber" << std::endl;
                 
+                // CRITICAL: Send acknowledgment back to sender to start RDMA thread
+                uint32_t my_node_id = client.get_my_id();
+                Blob ack_blob(reinterpret_cast<const uint8_t*>(&my_node_id), sizeof(uint32_t));
+                ObjectWithStringKey ack_obj("oob_fp/receiver_ready", ack_blob);
+                client.put_and_forget<VolatileCascadeStoreWithStringKey>(ack_obj, 0, payload.dest_node);
+                
+                std::cout << "[START_RECV] Sent READY acknowledgment to sender node " << payload.dest_node << std::endl;
+                
             } catch (const std::exception& e) {
                 std::cout << "[ERROR] Exception in start_recv: " << e.what() << std::endl;
+            }
+        }
+        else if (tokens[1] == "receiver_ready") {
+            // Receiver is ready - now start our RDMA thread and application
+            std::cout << "[RECEIVER_READY] Receiver acknowledged ready - starting RDMA and application threads" << std::endl;
+            
+            if (!send_buf) {
+                std::cout << "[ERROR] No send buffer available to start!" << std::endl;
+                return;
+            }
+            
+            try {
+                // NOW start the RDMA thread (receiver is ready)
+                client.oob_send_start(send_buf, 10);
+                std::cout << "[RECEIVER_READY] Send buffer RDMA thread started on core 10" << std::endl;
+                
+                // Start sending data in a separate thread with proper yielding
+                std::thread([this, &client]() {
+                    // Pin to core 12
+                    cpu_set_t set;
+                    CPU_ZERO(&set);
+                    CPU_SET(12, &set);
+                    pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
+                    
+                    // Set thread name for debugging
+                    pthread_setname_np(pthread_self(), "OOB_SEND_APP");
+                    
+                    std::cout << "[SEND_APP] Application sender thread pinned to core 12" << std::endl;
+
+                    // Give RDMA thread time to start up properly
+                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                    
+                    this->start_sending_data(client);
+                }).detach();
+                
+            } catch (const std::exception& e) {
+                std::cout << "[ERROR] Exception in receiver_ready: " << e.what() << std::endl;
             }
         }
         else {

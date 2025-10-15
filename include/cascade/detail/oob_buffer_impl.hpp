@@ -236,6 +236,11 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
     volatile uint64_t* rdma_send_tail_ptr = reinterpret_cast<volatile uint64_t*>(send_tail.load());
 
     while (stop_flag.load(std::memory_order_acquire) == 0) {
+        // CRITICAL: Force cache line flush before reading RDMA-updated head
+        // This ensures we see the latest value written by remote RDMA
+        _mm_clflush(reinterpret_cast<const void*>(rdma_head_ptr));
+        _mm_mfence();  // Memory fence to ensure flush completes
+        
         // Read the RDMA-updated values directly through volatile pointers
         uint64_t head_offset = *rdma_head_ptr;
         uint64_t tail_offset = *rdma_tail_ptr;

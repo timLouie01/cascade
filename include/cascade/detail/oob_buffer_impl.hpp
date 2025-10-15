@@ -238,7 +238,7 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
     while (stop_flag.load(std::memory_order_acquire) == 0) {
         // CRITICAL: Force cache line flush before reading RDMA-updated head
         // This ensures we see the latest value written by remote RDMA
-        _mm_clflush(reinterpret_cast<const void*>(rdma_head_ptr));
+        _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
         _mm_mfence();  // Memory fence to ensure flush completes
         
         // Read the RDMA-updated values directly through volatile pointers

@@ -126,7 +126,6 @@ inline void oob_send_buffer<CascadeTypes...>::advance_tail(size_t bytes_written)
               << " to " << new_send_tail << " (+" << bytes_written << " bytes) WRAP ENABLED" << std::endl;
     std::cout.flush();
 }
-}
 
 template<typename... CascadeTypes>
 inline size_t oob_send_buffer<CascadeTypes...>::get_available_space() const {

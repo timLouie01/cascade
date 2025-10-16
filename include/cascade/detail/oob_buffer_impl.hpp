@@ -169,12 +169,12 @@ inline size_t oob_send_buffer<CascadeTypes...>::get_available_space() const {
         if (available_space > 0) available_space -= 1;  // Reserve 1 byte to distinguish full from empty
     }
     
-    // Debug output occasionally
-    static int space_debug_count = 0;
-    if (++space_debug_count % 100 == 0) {
+    // // Debug output occasionally
+    // static int space_debug_count = 0;
+    // if (++space_debug_count % 100 == 0) {
         std::cout << "[SPACE_DEBUG] head=" << *rdma_head_ptr << ", send_tail=" << *rdma_send_tail_ptr 
                   << ", available=" << available_space << " (WRAP ENABLED)" << std::endl;
-    }
+    // }
     
     return available_space;
 }
@@ -265,11 +265,11 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
         // DEBUG: Print head value occasionally (every 100 iterations)
         static int debug_count = 0;
         debug_count++;
-        if (debug_count % 100 == 0) {
+        // if (debug_count % 100 == 0) {
             std::cout << "[SENDER_HEAD_CHECK #" << debug_count << "] head=" << *rdma_head_ptr 
                       << ", tail=" << *rdma_tail_ptr << ", send_tail=" << *rdma_send_tail_ptr << std::endl;
             std::cout.flush();
-        }
+        // }
         
         // Send data from tail to send_tail (data written but not yet sent)
         if (*rdma_send_tail_ptr != *rdma_tail_ptr) {

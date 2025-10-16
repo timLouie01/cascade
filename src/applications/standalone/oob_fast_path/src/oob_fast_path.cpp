@@ -372,7 +372,14 @@ private:
         const int num_messages = 50000;
         const auto start_time = std::chrono::high_resolution_clock::now();
         
+        // SLOW DOWN SENDING TO OBSERVE HEAD UPDATES
+        const int slow_down_ms = 50;  // Sleep 50ms between messages
+        std::cout << "[SEND_THREAD] SLOW MODE ENABLED: " << slow_down_ms << "ms between messages" << std::endl;
+        
         for (int i = 0; i < num_messages; ++i) {
+            // SLOW DOWN: Sleep between each message to allow head to advance
+            std::this_thread::sleep_for(std::chrono::milliseconds(slow_down_ms));
+            
             // Yield to other threads every 50 messages
             if (i % 50 == 0) {
                 std::this_thread::yield();

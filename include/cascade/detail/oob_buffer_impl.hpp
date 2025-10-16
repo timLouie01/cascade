@@ -93,17 +93,19 @@ inline oob_send_buffer<CascadeTypes...>::~oob_send_buffer() {
 template<typename... CascadeTypes>
 inline uint64_t oob_send_buffer<CascadeTypes...>::get_write_location() {
     // Calculate current write location from send_tail instead of cached value
-    void* send_tail_ptr = send_tail.load();
-    uint64_t current_send_tail = *reinterpret_cast<volatile uint64_t*>(send_tail_ptr);
+    // Get volatile pointer once, like in run_send()
+    volatile uint64_t* send_tail_ptr = reinterpret_cast<volatile uint64_t*>(send_tail.load());
+    uint64_t current_send_tail = *send_tail_ptr;
     uint64_t buffer_start = reinterpret_cast<uint64_t>(buff);
     return buffer_start + current_send_tail;
 }
 template<typename... CascadeTypes>
 inline void oob_send_buffer<CascadeTypes...>::advance_tail(size_t bytes_written) {
-    void* send_tail_ptr = send_tail.load();
+    // Get volatile pointer once, like in run_send()
+    volatile uint64_t* send_tail_ptr = reinterpret_cast<volatile uint64_t*>(send_tail.load());
     
-    // Use volatile access for potentially RDMA-updated memory
-    uint64_t current_send_tail = *reinterpret_cast<volatile uint64_t*>(send_tail_ptr);
+    // Read current value through volatile pointer
+    uint64_t current_send_tail = *send_tail_ptr;
     
     // PROPER WRAP-AROUND: Match the expected wrap-around logic
     uint64_t new_send_tail;
@@ -114,11 +116,16 @@ inline void oob_send_buffer<CascadeTypes...>::advance_tail(size_t bytes_written)
         // Normal case: just advance the tail
         new_send_tail = current_send_tail + bytes_written;
     }
-    *reinterpret_cast<volatile uint64_t*>(send_tail_ptr) = new_send_tail;
+    *send_tail_ptr = new_send_tail;
+    
+    // Flush send_tail cache line so RDMA thread (core 10) sees the updated value
+    _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(send_tail_ptr)));
+    _mm_mfence();
     
     std::cout << "[ADVANCE_TAIL] Advanced send_tail from " << current_send_tail 
               << " to " << new_send_tail << " (+" << bytes_written << " bytes) WRAP ENABLED" << std::endl;
     std::cout.flush();
+}
 }
 
 template<typename... CascadeTypes>
@@ -129,6 +136,13 @@ inline size_t oob_send_buffer<CascadeTypes...>::get_available_space() const {
     volatile uint64_t* rdma_head_ptr = reinterpret_cast<volatile uint64_t*>(head.load());
     volatile uint64_t* rdma_tail_ptr = reinterpret_cast<volatile uint64_t*>(tail.load());
     volatile uint64_t* rdma_send_tail_ptr = reinterpret_cast<volatile uint64_t*>(send_tail.load());
+    
+    // CRITICAL: Flush cache lines before reading to ensure we see latest values
+    // head is updated by remote RDMA, send_tail is updated by our own advance_tail()
+    _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
+    _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_send_tail_ptr)));
+    _mm_mfence();  // Ensure flushes complete before reading
+    
     // Force memory barrier to get fresh RDMA-updated values
     std::atomic_thread_fence(std::memory_order_acquire);
     
@@ -239,22 +253,24 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
     volatile uint64_t* rdma_send_tail_ptr = reinterpret_cast<volatile uint64_t*>(send_tail.load());
 
     while (stop_flag.load(std::memory_order_acquire) == 0) {
-        // CRITICAL: Force cache line flush before reading RDMA-updated head
-        // This ensures we see the latest value written by remote RDMA
-        // _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
-        // _mm_mfence();  
-        // Memory fence to ensure flush completes
+        // CRITICAL: Flush cache lines before reading to ensure we see latest values
+        // - head is updated by remote RDMA (receiver)
+        // - send_tail is updated by app thread (core 12)
+        _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
+        _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_send_tail_ptr)));
+        _mm_mfence();  // Ensure flushes complete before reading
         
-        // Read the RDMA-updated values directly through volatile pointers
-        // volatile uint64_t head_offset = *rdma_head_ptr;
-        // volatile uint64_t tail_offset = *rdma_tail_ptr;
-        // volatile uint64_t send_tail_offset = *rdma_send_tail_ptr;
+        // Read the values directly through volatile pointers
+        // These are now guaranteed fresh after the cache flush
         
-        // DEBUG: Print head value EVERY iteration
+        // DEBUG: Print head value occasionally (every 100 iterations)
         static int debug_count = 0;
         debug_count++;
-        std::cout << "[SENDER_HEAD_CHECK #" << debug_count << "] head=" << *rdma_head_ptr << std::endl;
-        std::cout.flush();
+        if (debug_count % 100 == 0) {
+            std::cout << "[SENDER_HEAD_CHECK #" << debug_count << "] head=" << *rdma_head_ptr 
+                      << ", tail=" << *rdma_tail_ptr << ", send_tail=" << *rdma_send_tail_ptr << std::endl;
+            std::cout.flush();
+        }
         
         // Send data from tail to send_tail (data written but not yet sent)
         if (*rdma_send_tail_ptr != *rdma_tail_ptr) {
@@ -378,6 +394,10 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
                 new_tail = *rdma_tail_ptr + data_size;
             // }
             *rdma_tail_ptr = new_tail;
+            
+            // Flush tail cache line so app thread (core 12) sees the updated value
+            _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
+            _mm_mfence();
             
             std::cout << "[RDMA_SEND] Updated local tail to " << *rdma_tail_ptr << " (WRAP ENABLED)" << std::endl;
             

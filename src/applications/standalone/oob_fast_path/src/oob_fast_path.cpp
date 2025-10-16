@@ -92,10 +92,28 @@ public:
             uint32_t dest_node = 1;
             
             
-            std::cout << "[PREPARE_SEND] Creating OOB send buffer for node " << dest_node << std::endl;
+            std::cout << "[PREPARE_SEND] Creating OOB send buffer for node " << dest_node 
+                      << " (creation pinned to core 10 for NUMA first-touch)" << std::endl;
             
             try {
-                send_buf = client.oob_send_buff_create(dest_node, MY_DESC, ring_size);
+                // Create send buffer in thread pinned to core 10 (same as run_send)
+                // This ensures NUMA first-touch on the correct node
+                std::thread create_thread([this, &client, dest_node, ring_size]() {
+                    // Pin to core 10
+                    cpu_set_t set;
+                    CPU_ZERO(&set);
+                    CPU_SET(10, &set);
+                    pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
+                    
+                    std::cout << "[PREPARE_SEND] Buffer creation thread pinned to core 10" << std::endl;
+                    
+                    // Create the buffer (this does allocation, mlock, and page warming)
+                    send_buf = client.oob_send_buff_create(dest_node, MY_DESC, ring_size);
+                    
+                    std::cout << "[PREPARE_SEND] Send buffer allocated on NUMA node of core 10" << std::endl;
+                });
+                
+                create_thread.join();
                 
                 if (!send_buf) {
                     std::cout << "[ERROR] Failed to create OOB send buffer!" << std::endl;
@@ -121,10 +139,28 @@ public:
             const uint64_t ring_size = 64 * 1024; // 64KB ring buffer
             uint32_t send_node = 0;
             
-            std::cout << "[PREPARE_RECV] Creating OOB recv buffer for node " << send_node << std::endl;
+            std::cout << "[PREPARE_RECV] Creating OOB recv buffer for node " << send_node 
+                      << " (creation pinned to core 11 for NUMA first-touch)" << std::endl;
             
             try {
-                recv_buf = client.oob_recv_buff_create(send_node, MY_DESC, ring_size);
+                // Create recv buffer in thread pinned to core 11 (same as run_recv)
+                // This ensures NUMA first-touch on the correct node
+                std::thread create_thread([this, &client, send_node, ring_size]() {
+                    // Pin to core 11
+                    cpu_set_t set;
+                    CPU_ZERO(&set);
+                    CPU_SET(11, &set);
+                    pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
+                    
+                    std::cout << "[PREPARE_RECV] Buffer creation thread pinned to core 11" << std::endl;
+                    
+                    // Create the buffer (this does allocation, mlock, and page warming)
+                    recv_buf = client.oob_recv_buff_create(send_node, MY_DESC, ring_size);
+                    
+                    std::cout << "[PREPARE_RECV] Recv buffer allocated on NUMA node of core 11" << std::endl;
+                });
+                
+                create_thread.join();
                 
                 if (!recv_buf) {
                     std::cout << "[ERROR] Failed to create OOB recv buffer!" << std::endl;

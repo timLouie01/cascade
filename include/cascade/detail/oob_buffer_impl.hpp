@@ -94,10 +94,15 @@ template<typename... CascadeTypes>
 inline uint64_t oob_send_buffer<CascadeTypes...>::get_write_location() {
     // Calculate current write location from send_tail instead of cached value
     // Get volatile pointer once, like in run_send()
+    const uint64_t chunk_size = 5 * 1024; // 5 KiB
     volatile uint64_t* send_tail_ptr = reinterpret_cast<volatile uint64_t*>(send_tail.load());
     uint64_t current_send_tail = *send_tail_ptr;
     uint64_t buffer_start = reinterpret_cast<uint64_t>(buff);
-    return buffer_start + current_send_tail;
+    if (current_send_tail + chunk_size > ring_size){
+        return buffer_start;
+    }else{
+        return buffer_start + current_send_tail;
+    }
 }
 template<typename... CascadeTypes>
 inline void oob_send_buffer<CascadeTypes...>::advance_tail(size_t bytes_written) {

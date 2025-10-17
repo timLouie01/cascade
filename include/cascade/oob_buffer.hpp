@@ -40,13 +40,13 @@ public:
   uint64_t get_head_r_key() const { return send_head_r_key; }
   
   // Check available space in the ring buffer
-  size_t get_available_space() const;
+  size_t get_available_space();
   
   // Write data to the buffer (moved from ServiceClient)
   void write(uint64_t local_addr, size_t size, bool local_gpu = false);
   
   // Check if data can fit in the buffer (moved from ServiceClient)
-  bool can_fit(size_t size) const;
+  bool can_fit(size_t size);
 
 private:
   void* buff {nullptr};

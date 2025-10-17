@@ -133,7 +133,7 @@ inline void oob_send_buffer<CascadeTypes...>::advance_tail(size_t bytes_written)
 }
 
 template<typename... CascadeTypes>
-inline size_t oob_send_buffer<CascadeTypes...>::get_available_space() const {
+inline size_t oob_send_buffer<CascadeTypes...>::get_available_space() {
     // void* head_ptr = head.load();
     // void* send_tail_ptr = send_tail.load();
 
@@ -216,7 +216,7 @@ inline void oob_send_buffer<CascadeTypes...>::write(uint64_t local_addr, size_t 
 }
 
 template<typename... CascadeTypes>
-inline bool oob_send_buffer<CascadeTypes...>::can_fit(size_t size) const {
+inline bool oob_send_buffer<CascadeTypes...>::can_fit(size_t size) {
     return get_available_space() >= size;
 }
 template<typename... CascadeTypes>

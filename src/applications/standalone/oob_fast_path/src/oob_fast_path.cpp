@@ -466,7 +466,7 @@ private:
                 TimestampLogger::log(LOG_OOBWRITE_RECV, client.get_my_id(), test_data->sequence_number);
                 
                 std::cout << "[RECV-ZERO-COPY] Received message " << test_data->sequence_number 
-                          << ": " << test_data->message << " (size: " << size << ")" << std::endl;
+                          << ": " << test_data->message << " (size: " << size << ")" << "received counter is: " << received_count << std::endl;
                 
                 // if (received_count % 100 == 0) {
                 //     std::cout << "[RECV-ZERO-COPY] Progress: " << received_count 

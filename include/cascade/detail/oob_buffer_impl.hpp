@@ -161,7 +161,7 @@ inline size_t oob_send_buffer<CascadeTypes...>::get_available_space() const {
         return 0;  // Conservative: no space available if offsets are corrupted
     }
     
-    size_t available_space;
+    volatile size_t available_space;
     if (*rdma_send_tail_ptr >= *rdma_head_ptr) {
         // Normal case: send_tail is ahead of head
         // Available space = (end of ring - send_tail) + (head - start) - 1

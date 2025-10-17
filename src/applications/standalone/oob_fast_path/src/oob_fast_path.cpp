@@ -44,6 +44,15 @@ private:
     std::unique_ptr<oob_send_buffer<VolatileCascadeStoreWithStringKey, PersistentCascadeStoreWithStringKey, TriggerCascadeNoStoreWithStringKey>> send_buf;
     std::unique_ptr<oob_recv_buffer<VolatileCascadeStoreWithStringKey, PersistentCascadeStoreWithStringKey, TriggerCascadeNoStoreWithStringKey>> recv_buf;
     
+    // Receiver tracking state (moved from static locals to member variables)
+    std::atomic<int> received_count{0};
+    std::chrono::high_resolution_clock::time_point recv_start_time;
+    static constexpr int expected_messages = 10000;
+    bool recv_timer_started{false};
+    
+    // Store client pointer for callbacks (avoid dangling references)
+    ServiceClientType* client_ptr = nullptr;
+    
     // Data structure for sending meaningful data
     struct TestData {
         uint64_t sequence_number;
@@ -298,6 +307,9 @@ public:
                       << ", rkey=0x" << payload.head_info.head_rkey << std::dec << std::endl;
             
             try {
+                // Store client pointer for callbacks (avoids dangling reference)
+                client_ptr = &client;
+                
                 client.oob_recv_connect(recv_buf, payload.head_info.head, payload.head_info.head_rkey);
                 std::cout << "[START_RECV] Recv buffer connected to sender's head" << std::endl;
                 
@@ -305,12 +317,10 @@ public:
                 std::cout << "[START_RECV] Recv buffer RDMA thread started on core 11" << std::endl;
                 
                 // Register zero-copy lock subscriber for data processing
+                // NO CAPTURE of client reference - use stored pointer instead
                 recv_buf->set_zero_copy_subscriber(
-                    // [this, &client](const void* data, size_t size, std::function<void()> release_func) {
-                    //     this->process_received_data_zero_copy(client, data, size, release_func);
-                    // });
-                    [this, &client](const void* data, size_t size) {
-                        this->process_received_data_zero_copy(client, data, size);
+                    [this](const void* data, size_t size) {
+                        this->process_received_data_zero_copy(data, size);
                     });
                 std::cout << "[START_RECV] Registered zero-copy lock subscriber" << std::endl;
                 
@@ -450,36 +460,45 @@ private:
     }
     
     // Zero-copy lock mode: Direct access with lock/release
-    void process_received_data_zero_copy(ServiceClient<VolatileCascadeStoreWithStringKey, PersistentCascadeStoreWithStringKey, TriggerCascadeNoStoreWithStringKey>& client, 
-                                         const void* data, size_t size) {
-        static int received_count = 0;
-        static auto start_time = std::chrono::high_resolution_clock::now();
-        static const int expected_messages = 10000;
-        
+    void process_received_data_zero_copy(const void* data, size_t size) {
         try {
+            // Start timer on first message
+            if (!recv_timer_started) {
+                recv_start_time = std::chrono::high_resolution_clock::now();
+                recv_timer_started = true;
+            }
+            
             // Process the received data directly from ring buffer (zero-copy)
             if (size >= sizeof(TestData)) {
                 const TestData* test_data = reinterpret_cast<const TestData*>(data);
                 
-                received_count++;
+                int count = ++received_count;  // Atomic increment
                 
-                TimestampLogger::log(LOG_OOBWRITE_RECV, client.get_my_id(), test_data->sequence_number);
+                if (client_ptr) {
+                    TimestampLogger::log(LOG_OOBWRITE_RECV, client_ptr->get_my_id(), test_data->sequence_number);
+                }
                 
+                // Uncomment for detailed logging:
                 // std::cout << "[RECV-ZERO-COPY] Received message " << test_data->sequence_number 
-                //           << ": " << test_data->message << " (size: " << size << ")" << "received counter is: " << received_count << std::endl;
+                //           << ": " << test_data->message << " (count: " << count << ")" << std::endl;
                 
-                // if (received_count % 100 == 0) {
-                //     std::cout << "[RECV-ZERO-COPY] Progress: " << received_count 
-                //               << "/" << expected_messages << " messages received" << std::endl;
-                // }
+                // Progress updates every 1000 messages
+                if (count % 1000 == 0) {
+                    std::cout << "[RECV-ZERO-COPY] Progress: " << count 
+                              << "/" << expected_messages << " messages received" << std::endl;
+                }
                 
                 // Check if we've received all expected messages
-                if (received_count >= expected_messages) {
+                if (count >= expected_messages) {
                     auto end_time = std::chrono::high_resolution_clock::now();
-                    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+                    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        end_time - recv_start_time);
                     
-                    std::cout << "[RECV-ZERO-COPY] Completed receiving " << received_count 
+                    std::cout << "[RECV-ZERO-COPY] Completed receiving " << count 
                               << " messages in " << duration.count() << " ms" << std::endl;
+                    
+                    // Small delay to ensure all log entries are queued
+                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
                     
                     TimestampLogger::flush("recv_oob_fast_path_timestamp.dat");
                     std::cout << "[RECV-ZERO-COPY] Flushed receive timestamps" << std::endl;
@@ -491,9 +510,6 @@ private:
         } catch (const std::exception& e) {
             std::cout << "[ERROR] Exception in process_received_data_zero_copy: " << e.what() << std::endl;
         }
-        
-        // CRITICAL: Must release the lock when done processing!
-        // release_func();
     }
     
     // Memory copy mode: Data copied to our buffer

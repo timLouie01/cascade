@@ -646,7 +646,8 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
                 false,
                 reinterpret_cast<uint64_t>(rdma_head_ptr),  // Use registered head memory address
                 false,
-                true  // MAKE IT SYNCHRONOUS TO ENSURE COMPLETION
+                false
+                    //true  // MAKE IT SYNCHRONOUS TO ENSURE COMPLETION
             );
             std::cout << "[RECV_DATA] RDMA write COMPLETED (synchronous) for head=" << *rdma_head_ptr << std::endl;
             std::cout.flush();

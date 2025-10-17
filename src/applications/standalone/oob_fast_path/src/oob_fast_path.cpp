@@ -496,7 +496,7 @@ private:
     void process_received_data_memory_copy(ServiceClient<VolatileCascadeStoreWithStringKey, PersistentCascadeStoreWithStringKey, TriggerCascadeNoStoreWithStringKey>& client, 
                                           const void* data, size_t size) {
         static int received_count = 0;
-        static const int expected_messages = 50000;
+        static const int expected_messages = 1000;
         
         try {
             // Process the received data

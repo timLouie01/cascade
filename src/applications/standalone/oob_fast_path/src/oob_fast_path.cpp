@@ -372,7 +372,7 @@ private:
     void start_sending_data(ServiceClient<VolatileCascadeStoreWithStringKey, PersistentCascadeStoreWithStringKey, TriggerCascadeNoStoreWithStringKey>& client) {
         std::cout << "[SEND_THREAD] Starting data transmission..." << std::endl;
         
-        const int num_messages = 1000;
+        const int num_messages = 10000;
         const auto start_time = std::chrono::high_resolution_clock::now();
         
         // SLOW DOWN SENDING TO OBSERVE HEAD UPDATES
@@ -454,7 +454,7 @@ private:
                                          const void* data, size_t size) {
         static int received_count = 0;
         static auto start_time = std::chrono::high_resolution_clock::now();
-        static const int expected_messages = 1000;
+        static const int expected_messages = 10000;
         
         try {
             // Process the received data directly from ring buffer (zero-copy)

@@ -138,12 +138,13 @@ template<typename... CascadeTypes>
     // void* send_tail_ptr = send_tail.load();
 
     volatile uint64_t* rdma_head_ptr = reinterpret_cast<volatile uint64_t*>(head.load());
-    // volatile uint64_t* rdma_tail_ptr = reinterpret_cast<volatile uint64_t*>(tail.load());
+    volatile uint64_t* rdma_tail_ptr = reinterpret_cast<volatile uint64_t*>(tail.load());
     volatile uint64_t* rdma_send_tail_ptr = reinterpret_cast<volatile uint64_t*>(send_tail.load());
     
     // CRITICAL: Flush cache lines before reading to ensure we see latest values
     // head is updated by remote RDMA, send_tail is updated by our own advance_tail()
     _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
+    _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
     _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_send_tail_ptr)));
     _mm_mfence();  // Ensure flushes complete before reading
     

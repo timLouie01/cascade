@@ -620,10 +620,10 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
             
             // PROPER WRAP-AROUND: Advance our head with jump-to-beginning logic
             volatile uint64_t new_head;
-            // if (head_offset + consume_size > ring_size) {
-            //     // If we would exceed the ring size, jump to the beginning
-            //     new_head = consume_size;
-            // } else {
+            if (head_offset + consume_size > ring_size) {
+                // If we would exceed the ring size, jump to the beginning + consume
+                new_head = consume_size;
+            } else {
                 // Normal case: just advance the head
                 new_head = *rdma_head_ptr + consume_size;
             // }

@@ -182,8 +182,8 @@ template<typename... CascadeTypes>
         
         if (*rdma_tail_ptr == *rdma_head_ptr) {
             // All three equal → EMPTY buffer
-            // Can write up to (ring_size)
-            return ring_size;
+            // Reserve 1 byte to distinguish full from empty states
+            return ring_size - 1;
         } else {
             // send_tail == head but tail != head → FULL buffer
             // App has written all the way around and caught up to head
@@ -192,7 +192,10 @@ template<typename... CascadeTypes>
         }
     }
     else {
-        return *rdma_head_ptr - *rdma_send_tail_ptr;
+        // Wrap case: head is ahead of send_tail
+        // Reserve 1 byte to distinguish full from empty
+        size_t space = *rdma_head_ptr - *rdma_send_tail_ptr;
+        return (space > 0) ? space - 1 : 0;
     }
     // else {
         // Wrap case: head is ahead of send_tail 
@@ -252,7 +255,7 @@ template<typename... CascadeTypes>
     _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
     _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_send_tail_ptr)));
     _mm_mfence();  // Ensure flushes complete before reading
-    
+
     std::cout << "[SPACE_DEBUG] head=" << *rdma_head_ptr << "tail" << *rdma_tail_ptr << ", send_tail=" << *rdma_send_tail_ptr 
                   << ", available=" << get_available_space() << " (WRAP ENABLED)" << std::endl;
     return get_available_space() >= size;
@@ -570,14 +573,18 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
               << ", tail=" << *rdma_tail_ptr << std::endl;
 
     while (stop_flag.load(std::memory_order_acquire) == 0) {
+        // CRITICAL: Flush tail cache line to see latest RDMA-updated value from sender
+        _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
+        _mm_mfence();
+        
         // Read the RDMA-updated values directly through volatile pointers
         // volatile uint64_t head_offset = *rdma_head_ptr;
         // volatile uint64_t tail_offset = *rdma_tail_ptr;
         
         // Debug output for receiver
         // static int recv_debug_count = 0;
-        // if (++recv_debug_count % 1000 == 0) {  // Print every 1000 iterations
-        //     std::cout << "[RECV_DEBUG] head=" << *rdma_head_ptr << ", tail=" << *rdma_tail_ptr << std::endl;
+        // if (++recv_debug_count % 100 == 0) {  // Print every 100 iterations
+            std::cout << "[RECV_DEBUG] head=" << *rdma_head_ptr << ", tail=" << *rdma_tail_ptr << std::endl;
         // }
         
         if (*rdma_tail_ptr != *rdma_head_ptr) {

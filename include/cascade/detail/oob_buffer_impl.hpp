@@ -338,14 +338,15 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
                 } else {
                     // Not enough space to end for 5KB, need to wrap around
                     // But we can only wrap if there's space at the front (head > 0)
-                    if (*rdma_head_ptr > chunk_size) {
+                    // if (*rdma_head_ptr > chunk_size) {
+                    if (*rdma_head_ptr > chunk_size && *rdma_send_tail_ptr < *rdma_tail_ptr) {   
                         // Safe to jump to front
                         send_from_offset = 0;
                         data_size = chunk_size;
                         
                         // Update tail to jump to front
                         *rdma_tail_ptr = 0;
-                        
+                        // *rdma_send_tail_ptr = 0;
                         // std::cout << "[RDMA_SEND] Jumped tail to front" << std::endl;
                         
                         available_data = *rdma_send_tail_ptr - *rdma_tail_ptr;

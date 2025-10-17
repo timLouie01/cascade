@@ -169,7 +169,8 @@ template<typename... CascadeTypes>
         // size_t space = (ring_size - *rdma_send_tail_ptr) + *rdma_head_ptr;
         // if (available_space > 0) available_space -= 1;  // Reserve 1 byte to distinguish full from empty
         // return (space > 0) ? space - 1: 0;
-        return ((ring_size - *rdma_send_tail_ptr) + *rdma_head_ptr > 0)? (ring_size - *rdma_send_tail_ptr) + *rdma_head_ptr-1: 0;
+        // TODO OPTIMIZE THIS
+        return ((ring_size - *rdma_send_tail_ptr) > 0)? (ring_size - *rdma_send_tail_ptr) -1: 0;
     } else {
         // Wrap case: head is ahead of send_tail 
         // Available space = head - send_tail - 1

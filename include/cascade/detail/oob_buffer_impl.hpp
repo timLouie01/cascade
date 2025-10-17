@@ -314,7 +314,7 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
             const uint64_t chunk_size = 5 * 1024; // 5 KiB
             uint64_t available_data;
             uint64_t data_size;
-            uint64_t send_from_offset = *rdma_tail_ptr;  // Where to read data from our buffer
+            // uint64_t send_from_offset = *rdma_tail_ptr;  // Where to read data from our buffer
             
             // Simple wrap-around logic: if we can't fit 5KiB, try from the front
             if (*rdma_send_tail_ptr >= *rdma_tail_ptr) {
@@ -341,7 +341,7 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
                     // if (*rdma_head_ptr > chunk_size) {
                     if (*rdma_head_ptr > chunk_size && *rdma_send_tail_ptr < *rdma_tail_ptr) {   
                         // Safe to jump to front
-                        send_from_offset = 0;
+                        // send_from_offset = 0;
                         data_size = chunk_size;
                         
                         // Update tail to jump to front
@@ -368,7 +368,7 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
             }
             
             // Additional bounds checks for the RDMA operations
-            if (send_from_offset + data_size > ring_size) {
+            if ( *rdma_tail_ptr + data_size > ring_size) {
                 // std::cout << "[RDMA_ERROR] Local read would exceed buffer: offset=" << send_from_offset 
                 //           << ", size=" << data_size << ", ring_size=" << ring_size << std::endl;
                 // std::this_thread::yield();
@@ -392,7 +392,7 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
                 this->dest_buff_r_key,
                 data_size,
                 false,
-                buffer_start + send_from_offset,  // Read from our calculated source offset
+                buffer_start +  *rdma_tail_ptr,  // Read from our calculated source offset
                 false,
                 false
             );

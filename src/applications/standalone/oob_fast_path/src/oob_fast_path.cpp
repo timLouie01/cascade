@@ -428,9 +428,10 @@ private:
                 // }
                 
                 // Double-check space availability just before writing
-                // if (send_buf->can_fit(sizeof(TestData))) {
+                if (send_buf->can_fit(sizeof(TestData))) {
                     send_buf->write(reinterpret_cast<uint64_t>(&data), sizeof(TestData), false);
-                // } else {
+                } 
+                // else {
                     // std::cout << "[SEND_WARNING] Lost space between check and write for message " << i << std::endl;
                     // Retry the iteration
                     // --i;

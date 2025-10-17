@@ -306,8 +306,11 @@ public:
                 
                 // Register zero-copy lock subscriber for data processing
                 recv_buf->set_zero_copy_subscriber(
-                    [this, &client](const void* data, size_t size, std::function<void()> release_func) {
-                        this->process_received_data_zero_copy(client, data, size, release_func);
+                    // [this, &client](const void* data, size_t size, std::function<void()> release_func) {
+                    //     this->process_received_data_zero_copy(client, data, size, release_func);
+                    // });
+                    [this, &client](const void* data, size_t size) {
+                        this->process_received_data_zero_copy(client, data, size);
                     });
                 std::cout << "[START_RECV] Registered zero-copy lock subscriber" << std::endl;
                 
@@ -538,8 +541,11 @@ private:
     void switch_to_zero_copy_mode(ServiceClient<VolatileCascadeStoreWithStringKey, PersistentCascadeStoreWithStringKey, TriggerCascadeNoStoreWithStringKey>& client) {
         std::cout << "[SWITCH] Switching to zero-copy lock mode" << std::endl;
         recv_buf->set_zero_copy_subscriber(
-            [this, &client](const void* data, size_t size, std::function<void()> release_func) {
-                this->process_received_data_zero_copy(client, data, size, release_func);
+            // [this, &client](const void* data, size_t size, std::function<void()> release_func) {
+            //     this->process_received_data_zero_copy(client, data, size, release_func);
+            // });
+            [this, &client](const void* data, size_t size) {
+                this->process_received_data_zero_copy(client, data, size);
             });
     }
     

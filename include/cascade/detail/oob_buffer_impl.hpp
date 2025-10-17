@@ -584,7 +584,7 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
         // Debug output for receiver
         // static int recv_debug_count = 0;
         // if (++recv_debug_count % 100 == 0) {  // Print every 100 iterations
-            std::cout << "[RECV_DEBUG] head=" << *rdma_head_ptr << ", tail=" << *rdma_tail_ptr << std::endl;
+            // std::cout << "[RECV_DEBUG] head=" << *rdma_head_ptr << ", tail=" << *rdma_tail_ptr << std::endl;
         // }
         
         if (*rdma_tail_ptr != *rdma_head_ptr) {
@@ -706,7 +706,7 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
                 false
                     //true  // MAKE IT SYNCHRONOUS TO ENSURE COMPLETION
             );
-             std::cout << "[RECV_DATA] RDMA write COMPLETED" << *rdma_head_ptr  << std::endl;
+            //  std::cout << "[RECV_DATA] RDMA write COMPLETED" << *rdma_head_ptr  << std::endl;
             // std::cout << "[RECV_DATA] RDMA write COMPLETED (synchronous) for head=" << *rdma_head_ptr << std::endl;
             // std::cout.flush();
             

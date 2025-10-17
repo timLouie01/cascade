@@ -356,19 +356,19 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
             }
             
             // Additional bounds checks for the RDMA operations
-            // if (send_from_offset + data_size > ring_size) {
-            //     std::cout << "[RDMA_ERROR] Local read would exceed buffer: offset=" << send_from_offset 
-            //               << ", size=" << data_size << ", ring_size=" << ring_size << std::endl;
-            //     std::this_thread::yield();
-            //     continue;
-            // }
+            if (send_from_offset + data_size > ring_size) {
+                // std::cout << "[RDMA_ERROR] Local read would exceed buffer: offset=" << send_from_offset 
+                //           << ", size=" << data_size << ", ring_size=" << ring_size << std::endl;
+                // std::this_thread::yield();
+                continue;
+            }
             
-            // if (*rdma_tail_ptr + data_size > ring_size) {
-            //     std::cout << "[RDMA_ERROR] Remote write would exceed buffer: offset=" << *rdma_tail_ptr 
-            //               << ", size=" << data_size << ", ring_size=" << ring_size << std::endl;
-            //     std::this_thread::yield();
-            //     continue;
-            // }
+            if (*rdma_tail_ptr + data_size > ring_size) {
+                // std::cout << "[RDMA_ERROR] Remote write would exceed buffer: offset=" << *rdma_tail_ptr 
+                //           << ", size=" << data_size << ", ring_size=" << ring_size << std::endl;
+                // std::this_thread::yield();
+                continue;
+            }
             
             // std::cout << "[RDMA_SEND] Sending " << data_size << " bytes from local offset " 
             //           << send_from_offset << " to remote offset " << *rdma_tail_ptr  << " (WRAP ENABLED)" << std::endl;

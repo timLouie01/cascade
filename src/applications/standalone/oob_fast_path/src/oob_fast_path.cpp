@@ -492,7 +492,7 @@ private:
         }
         
         // CRITICAL: Must release the lock when done processing!
-        release_func();
+        // release_func();
     }
     
     // Memory copy mode: Data copied to our buffer

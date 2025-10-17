@@ -242,6 +242,17 @@ inline void oob_send_buffer<CascadeTypes...>::write(uint64_t local_addr, size_t 
 
 template<typename... CascadeTypes>
  bool oob_send_buffer<CascadeTypes...>::can_fit(size_t size) {
+    volatile uint64_t* rdma_head_ptr = reinterpret_cast<volatile uint64_t*>(head.load());
+    volatile uint64_t* rdma_tail_ptr = reinterpret_cast<volatile uint64_t*>(tail.load());
+    volatile uint64_t* rdma_send_tail_ptr = reinterpret_cast<volatile uint64_t*>(send_tail.load());
+    
+    // CRITICAL: Flush cache lines before reading to ensure we see latest values
+    // head is updated by remote RDMA, send_tail is updated by our own advance_tail()
+    _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
+    _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
+    _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_send_tail_ptr)));
+    _mm_mfence();  // Ensure flushes complete before reading
+    
     std::cout << "[SPACE_DEBUG] head=" << *rdma_head_ptr << "tail" << *rdma_tail_ptr << ", send_tail=" << *rdma_send_tail_ptr 
                   << ", available=" << get_available_space() << " (WRAP ENABLED)" << std::endl;
     return get_available_space() >= size;

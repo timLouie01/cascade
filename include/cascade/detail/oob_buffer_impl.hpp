@@ -86,7 +86,7 @@ inline oob_send_buffer<CascadeTypes...>::~oob_send_buffer() {
     // Free the allocated send_tail memory
     void* send_tail_mem = send_tail.load();
     if (send_tail_mem) {
-        std::cout << "[DESTRUCTOR] Freeing send_tail memory at " << send_tail_mem << std::endl;
+        // std::cout << "[DESTRUCTOR] Freeing send_tail memory at " << send_tail_mem << std::endl;
         free(send_tail_mem);
     }
 }
@@ -127,9 +127,9 @@ inline void oob_send_buffer<CascadeTypes...>::advance_tail(size_t bytes_written)
     _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(send_tail_ptr)));
     _mm_mfence();
     
-    std::cout << "[ADVANCE_TAIL] Advanced send_tail from " << current_send_tail 
-              << " to " << new_send_tail << " (+" << bytes_written << " bytes) WRAP ENABLED" << std::endl;
-    std::cout.flush();
+    // std::cout << "[ADVANCE_TAIL] Advanced send_tail from " << current_send_tail 
+    //           << " to " << new_send_tail << " (+" << bytes_written << " bytes) WRAP ENABLED" << std::endl;
+    // std::cout.flush();
 }
 
 template<typename... CascadeTypes>
@@ -177,8 +177,8 @@ inline size_t oob_send_buffer<CascadeTypes...>::get_available_space() const {
     // // Debug output occasionally
     // static int space_debug_count = 0;
     // if (++space_debug_count % 100 == 0) {
-        std::cout << "[SPACE_DEBUG] head=" << *rdma_head_ptr << ", send_tail=" << *rdma_send_tail_ptr 
-                  << ", available=" << available_space << " (WRAP ENABLED)" << std::endl;
+        // std::cout << "[SPACE_DEBUG] head=" << *rdma_head_ptr << ", send_tail=" << *rdma_send_tail_ptr 
+        //           << ", available=" << available_space << " (WRAP ENABLED)" << std::endl;
     // }
     
     return available_space;
@@ -188,9 +188,9 @@ template<typename... CascadeTypes>
 inline void oob_send_buffer<CascadeTypes...>::write(uint64_t local_addr, size_t size, bool local_gpu) {
     void* src = reinterpret_cast<void*>(local_addr);
     
-    std::cout << "[BUFFER_WRITE] Writing " << size << " bytes to buffer (available: " 
-              << get_available_space() << " bytes)" << std::endl;
-    std::cout.flush();
+    // std::cout << "[BUFFER_WRITE] Writing " << size << " bytes to buffer (available: " 
+    //           << get_available_space() << " bytes)" << std::endl;
+    // std::cout.flush();
     
     if (local_gpu){
         #ifdef USE_CUDA
@@ -335,7 +335,7 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
                         // Update tail to jump to front
                         *rdma_tail_ptr = 0;
                         
-                        std::cout << "[RDMA_SEND] Jumped tail to front" << std::endl;
+                        // std::cout << "[RDMA_SEND] Jumped tail to front" << std::endl;
                         
                         available_data = *rdma_send_tail_ptr - *rdma_tail_ptr;
                         if (available_data >= chunk_size) {
@@ -348,7 +348,7 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
                         }
                     } else {
                         // Can't wrap yet, head is too close to front
-                        std::cout << "[RDMA_SEND] Cannot wrap, head too close to front (" << *rdma_head_ptr << ")" << std::endl;
+                        // std::cout << "[RDMA_SEND] Cannot wrap, head too close to front (" << *rdma_head_ptr << ")" << std::endl;
                         std::this_thread::yield();
                         continue;
                     }
@@ -403,7 +403,7 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
             _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
             _mm_mfence();
             
-            std::cout << "[RDMA_SEND] Updated local tail to " << *rdma_tail_ptr << " (WRAP ENABLED)" << std::endl;
+            // std::cout << "[RDMA_SEND] Updated local tail to " << *rdma_tail_ptr << " (WRAP ENABLED)" << std::endl;
             
             // Tell remote their new tail position (use our registered tail memory address)
             this->service_client.template oob_memwrite<typename std::tuple_element<0, std::tuple<CascadeTypes...>>::type>(

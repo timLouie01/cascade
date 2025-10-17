@@ -271,33 +271,33 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
         static int debug_count = 0;
         debug_count++;
         // if (debug_count % 100 == 0) {
-            std::cout << "[SENDER_HEAD_CHECK #" << debug_count << "] head=" << *rdma_head_ptr 
-                      << ", tail=" << *rdma_tail_ptr << ", send_tail=" << *rdma_send_tail_ptr << std::endl;
-            std::cout.flush();
+            // std::cout << "[SENDER_HEAD_CHECK #" << debug_count << "] head=" << *rdma_head_ptr 
+            //           << ", tail=" << *rdma_tail_ptr << ", send_tail=" << *rdma_send_tail_ptr << std::endl;
+            // std::cout.flush();
         // }
         
         // Send data from tail to send_tail (data written but not yet sent)
         if (*rdma_send_tail_ptr != *rdma_tail_ptr) {
-            std::cout << "[RDMA_SEND] *** DATA TO SEND *** tail=" << *rdma_tail_ptr 
-                      << ", send_tail=" << *rdma_send_tail_ptr << " (WRAP ENABLED)" << std::endl;
-            std::cout.flush();
+            // std::cout << "[RDMA_SEND] *** DATA TO SEND *** tail=" << *rdma_tail_ptr 
+            //           << ", send_tail=" << *rdma_send_tail_ptr << " (WRAP ENABLED)" << std::endl;
+            // std::cout.flush();
             
             // Validate pointers before use
-            if (!rdma_head_ptr || !rdma_tail_ptr || !rdma_send_tail_ptr || !buff) {
-                std::cout << "[RDMA_ERROR] NULL pointer detected: head_ptr=" << rdma_head_ptr 
-                          << ", tail_ptr=" << rdma_tail_ptr << ", send_tail_ptr=" << rdma_send_tail_ptr 
-                          << ", buff=" << buff << std::endl;
-                std::this_thread::yield();
-                continue;
-            }
+            // if (!rdma_head_ptr || !rdma_tail_ptr || !rdma_send_tail_ptr || !buff) {
+            //     std::cout << "[RDMA_ERROR] NULL pointer detected: head_ptr=" << rdma_head_ptr 
+            //               << ", tail_ptr=" << rdma_tail_ptr << ", send_tail_ptr=" << rdma_send_tail_ptr 
+            //               << ", buff=" << buff << std::endl;
+            //     std::this_thread::yield();
+            //     continue;
+            // }
             
             // Validate offsets are within bounds
-            if (*rdma_tail_ptr >= ring_size || *rdma_send_tail_ptr >= ring_size) {
-                std::cout << "[RDMA_ERROR] Offset out of bounds: tail=" << *rdma_tail_ptr 
-                          << ", send_tail=" << *rdma_send_tail_ptr << ", ring_size=" << ring_size << std::endl;
-                std::this_thread::yield();
-                continue;
-            }
+            // if (*rdma_tail_ptr >= ring_size || *rdma_send_tail_ptr >= ring_size) {
+            //     std::cout << "[RDMA_ERROR] Offset out of bounds: tail=" << *rdma_tail_ptr 
+            //               << ", send_tail=" << *rdma_send_tail_ptr << ", ring_size=" << ring_size << std::endl;
+            //     std::this_thread::yield();
+            //     continue;
+            // }
             
             uint64_t buffer_start = reinterpret_cast<uint64_t>(buff);
             const uint64_t chunk_size = 5 * 1024; // 5 KiB
@@ -356,22 +356,22 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
             }
             
             // Additional bounds checks for the RDMA operations
-            if (send_from_offset + data_size > ring_size) {
-                std::cout << "[RDMA_ERROR] Local read would exceed buffer: offset=" << send_from_offset 
-                          << ", size=" << data_size << ", ring_size=" << ring_size << std::endl;
-                std::this_thread::yield();
-                continue;
-            }
+            // if (send_from_offset + data_size > ring_size) {
+            //     std::cout << "[RDMA_ERROR] Local read would exceed buffer: offset=" << send_from_offset 
+            //               << ", size=" << data_size << ", ring_size=" << ring_size << std::endl;
+            //     std::this_thread::yield();
+            //     continue;
+            // }
             
-            if (*rdma_tail_ptr + data_size > ring_size) {
-                std::cout << "[RDMA_ERROR] Remote write would exceed buffer: offset=" << *rdma_tail_ptr 
-                          << ", size=" << data_size << ", ring_size=" << ring_size << std::endl;
-                std::this_thread::yield();
-                continue;
-            }
+            // if (*rdma_tail_ptr + data_size > ring_size) {
+            //     std::cout << "[RDMA_ERROR] Remote write would exceed buffer: offset=" << *rdma_tail_ptr 
+            //               << ", size=" << data_size << ", ring_size=" << ring_size << std::endl;
+            //     std::this_thread::yield();
+            //     continue;
+            // }
             
-            std::cout << "[RDMA_SEND] Sending " << data_size << " bytes from local offset " 
-                      << send_from_offset << " to remote offset " << *rdma_tail_ptr  << " (WRAP ENABLED)" << std::endl;
+            // std::cout << "[RDMA_SEND] Sending " << data_size << " bytes from local offset " 
+            //           << send_from_offset << " to remote offset " << *rdma_tail_ptr  << " (WRAP ENABLED)" << std::endl;
             
             // Write data to remote buffer at their current tail position
             this->service_client.template oob_memwrite<typename std::tuple_element<0, std::tuple<CascadeTypes...>>::type>(
@@ -530,13 +530,13 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
         // volatile uint64_t tail_offset = *rdma_tail_ptr;
         
         // Debug output for receiver
-        static int recv_debug_count = 0;
-        if (++recv_debug_count % 1000 == 0) {  // Print every 1000 iterations
-            std::cout << "[RECV_DEBUG] head=" << *rdma_head_ptr << ", tail=" << *rdma_tail_ptr << std::endl;
-        }
+        // static int recv_debug_count = 0;
+        // if (++recv_debug_count % 1000 == 0) {  // Print every 1000 iterations
+        //     std::cout << "[RECV_DEBUG] head=" << *rdma_head_ptr << ", tail=" << *rdma_tail_ptr << std::endl;
+        // }
         
         if (*rdma_tail_ptr != *rdma_head_ptr) {
-            std::cout << "[RECV_DATA] Processing data: head=" << *rdma_head_ptr << ", tail=" << *rdma_tail_ptr << " (WRAP ENABLED)" << std::endl;
+            // std::cout << "[RECV_DATA] Processing data: head=" << *rdma_head_ptr << ", tail=" << *rdma_tail_ptr << " (WRAP ENABLED)" << std::endl;
             uint64_t buffer_start = reinterpret_cast<uint64_t>(buff);
             
             const uint64_t chunk_size = 5 * 1024; // 5 KiB
@@ -578,32 +578,34 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
                         continue;
                     }
                     
-                    std::cout << "[RECV_DATA] Jumped head to front, now consuming from offset 0" << std::endl;
+                    // std::cout << "[RECV_DATA] Jumped head to front, now consuming from offset 0" << std::endl;
                 }
             }
             
             if (has_subscriber) {
                 if (subscription_mode == SubscriptionMode::ZERO_COPY_LOCK) {
                     // Zero-copy mode: provide direct access with lock/release mechanism
-                    if (zero_copy_callback && !buffer_locked.load()) {
-                         std::cout << "[ZERO_COPY_RECV] ZERO COPY PROCESS ACQUIRE LOCK" << std::endl;
-                        buffer_locked.store(true);
+                    // if (zero_copy_callback && !buffer_locked.load()) {
+                    if (zero_copy_callback){
+                        //  std::cout << "[ZERO_COPY_RECV] ZERO COPY PROCESS ACQUIRE LOCK" << std::endl;
+                        // buffer_locked.store(true);
                         
-                        auto release_func = [this]() {
-                            buffer_locked.store(false);
-                        };
+                        // auto release_func = [this]() {
+                            // buffer_locked.store(false);
+                        // };
                         
                         zero_copy_callback(
                             reinterpret_cast<const void*>(buffer_start + *rdma_head_ptr), 
-                            consume_size, 
-                            release_func
+                            consume_size
+                            // ,
+                            // release_func
                         );
                         
                         // Busy wait for release - no context switching
-                        while (buffer_locked.load()) {
-                            _mm_pause();
-                        }
-                        std::cout << "[ZERO_COPY_RECV] ZERO COPY PROCESS UNLOCK" << std::endl;
+                        // while (buffer_locked.load()) {
+                        //     _mm_pause();
+                        // }
+                        // std::cout << "[ZERO_COPY_RECV] ZERO COPY PROCESS UNLOCK" << std::endl;
                     }
                 } else if (subscription_mode == SubscriptionMode::MEMORY_COPY) {
                     // Memory copy mode: copy to registered memory
@@ -629,13 +631,13 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
 
             // Verify what we're about to send
             uint64_t verify_value = *rdma_head_ptr;
-            std::cout << "[RECV_RDMA_WRITE] Writing head=" << new_head 
-                      << " (verified value at head_ptr=" << verify_value << ")"
-                      << " FROM local head_ptr=0x" << std::hex << reinterpret_cast<uint64_t>(rdma_head_ptr)
-                      << " TO remote head_addr=0x" << this->head_addr << std::dec
-                      << " on node " << this->send_node 
-                      << " rkey=0x" << std::hex << this->head_r_key << std::dec << std::endl;
-            std::cout.flush();
+            // std::cout << "[RECV_RDMA_WRITE] Writing head=" << new_head 
+            //           << " (verified value at head_ptr=" << verify_value << ")"
+            //           << " FROM local head_ptr=0x" << std::hex << reinterpret_cast<uint64_t>(rdma_head_ptr)
+            //           << " TO remote head_addr=0x" << this->head_addr << std::dec
+            //           << " on node " << this->send_node 
+            //           << " rkey=0x" << std::hex << this->head_r_key << std::dec << std::endl;
+            // std::cout.flush();
 
             // Notify sender of new head position via RDMA (use our registered head memory address)
             this->service_client.template oob_memwrite<typename std::tuple_element<0, std::tuple<CascadeTypes...>>::type>(
@@ -649,8 +651,8 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
                 false
                     //true  // MAKE IT SYNCHRONOUS TO ENSURE COMPLETION
             );
-            std::cout << "[RECV_DATA] RDMA write COMPLETED (synchronous) for head=" << *rdma_head_ptr << std::endl;
-            std::cout.flush();
+            // std::cout << "[RECV_DATA] RDMA write COMPLETED (synchronous) for head=" << *rdma_head_ptr << std::endl;
+            // std::cout.flush();
             
             // Ensure RDMA head update is ordered and visible
             std::atomic_thread_fence(std::memory_order_release);

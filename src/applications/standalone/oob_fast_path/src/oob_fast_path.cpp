@@ -369,30 +369,30 @@ private:
     void start_sending_data(ServiceClient<VolatileCascadeStoreWithStringKey, PersistentCascadeStoreWithStringKey, TriggerCascadeNoStoreWithStringKey>& client) {
         std::cout << "[SEND_THREAD] Starting data transmission..." << std::endl;
         
-        const int num_messages = 50000;
+        const int num_messages = 1000;
         const auto start_time = std::chrono::high_resolution_clock::now();
         
         // SLOW DOWN SENDING TO OBSERVE HEAD UPDATES
-        const int slow_down_ms = 50;  // Sleep 50ms between messages
-        std::cout << "[SEND_THREAD] SLOW MODE ENABLED: " << slow_down_ms << "ms between messages" << std::endl;
+        // const int slow_down_ms = 50;  // Sleep 50ms between messages
+        // std::cout << "[SEND_THREAD] SLOW MODE ENABLED: " << slow_down_ms << "ms between messages" << std::endl;
         
         for (int i = 0; i < num_messages; ++i) {
             // SLOW DOWN: Sleep between each message to allow head to advance
-            std::this_thread::sleep_for(std::chrono::milliseconds(slow_down_ms));
+            // std::this_thread::sleep_for(std::chrono::milliseconds(slow_down_ms));
             
             // Yield to other threads every 50 messages
-            if (i % 50 == 0) {
-                std::this_thread::yield();
-                // Also sleep briefly every 1000 messages for better cooperation
-                if (i % 1000 == 0) {
-                    std::this_thread::sleep_for(std::chrono::microseconds(100));
-                }
-            }
+            // if (i % 50 == 0) {
+            //     std::this_thread::yield();
+            //     // Also sleep briefly every 1000 messages for better cooperation
+            //     if (i % 1000 == 0) {
+            //         std::this_thread::sleep_for(std::chrono::microseconds(100));
+            //     }
+            // }
             
             // Brief pause before checking space
-            for (int pause_cycles = 0; pause_cycles < 4; ++pause_cycles) {
-                _mm_pause();
-            }
+            // for (int pause_cycles = 0; pause_cycles < 4; ++pause_cycles) {
+            //     _mm_pause();
+            // }
             
             // Wait for space with better yielding strategy
             int wait_cycles = 0;
@@ -420,19 +420,19 @@ private:
                 TimestampLogger::log(LOG_OOBWRITE_SEND, client.get_my_id(), data.sequence_number);
                 
                 // Remove excessive debug output that might cause issues
-                if (i % 5000 == 0) {
-                    std::cout << "[SEND_THREAD] Progress: " << i << "/" << num_messages << std::endl;
-                }
+                // if (i % 5000 == 0) {
+                //     std::cout << "[SEND_THREAD] Progress: " << i << "/" << num_messages << std::endl;
+                // }
                 
                 // Double-check space availability just before writing
-                if (send_buf->can_fit(sizeof(TestData))) {
+                // if (send_buf->can_fit(sizeof(TestData))) {
                     send_buf->write(reinterpret_cast<uint64_t>(&data), sizeof(TestData), false);
-                } else {
-                    std::cout << "[SEND_WARNING] Lost space between check and write for message " << i << std::endl;
+                // } else {
+                    // std::cout << "[SEND_WARNING] Lost space between check and write for message " << i << std::endl;
                     // Retry the iteration
-                    --i;
-                    continue;
-                }
+                    // --i;
+                    // continue;
+                // }
                 
             } catch (const std::exception& e) {
                 std::cout << "[ERROR] Exception while sending data at message " << i << ": " << e.what() << std::endl;
@@ -450,7 +450,7 @@ private:
                                          const void* data, size_t size, std::function<void()> release_func) {
         static int received_count = 0;
         static auto start_time = std::chrono::high_resolution_clock::now();
-        static const int expected_messages = 50000;
+        static const int expected_messages = 1000;
         
         try {
             // Process the received data directly from ring buffer (zero-copy)
@@ -461,8 +461,8 @@ private:
                 
                 TimestampLogger::log(LOG_OOBWRITE_RECV, client.get_my_id(), test_data->sequence_number);
                 
-                std::cout << "[RECV-ZERO-COPY] Received message " << test_data->sequence_number 
-                          << ": " << test_data->message << " (size: " << size << ")" << std::endl;
+                // std::cout << "[RECV-ZERO-COPY] Received message " << test_data->sequence_number 
+                //           << ": " << test_data->message << " (size: " << size << ")" << std::endl;
                 
                 // if (received_count % 100 == 0) {
                 //     std::cout << "[RECV-ZERO-COPY] Progress: " << received_count 

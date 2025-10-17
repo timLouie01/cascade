@@ -84,7 +84,8 @@ template<typename... CascadeTypes>
 class oob_recv_buffer {
 public:
     // Callback types for different subscription modes
-    using ZeroCopyCallback = std::function<void(const void* data, size_t size, std::function<void()> release_func)>;
+    // using ZeroCopyCallback = std::function<void(const void* data, size_t size, std::function<void()> release_func)>;
+    using ZeroCopyCallback = std::function<void(const void* data, size_t size)>;
     using MemoryCopyCallback = std::function<void(const void* data, size_t size)>;
     
     // Subscription modes

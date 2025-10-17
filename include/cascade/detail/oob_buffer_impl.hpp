@@ -160,7 +160,7 @@ template<typename... CascadeTypes>
                   << ", send_tail=" << *rdma_send_tail_ptr << ", ring_size=" << ring_size << std::endl;
         return 0;  // Conservative: no space available if offsets are corrupted
     }
-    
+    const uint64_t chunk_size = 5 * 1024; // 5 KiB
     // volatile size_t available_space;
     if (*rdma_send_tail_ptr >= *rdma_head_ptr) {
         // Normal case: send_tail is ahead of head

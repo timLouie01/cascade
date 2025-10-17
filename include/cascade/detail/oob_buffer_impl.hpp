@@ -635,8 +635,11 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
             // }
             *rdma_head_ptr = new_head;
 
+             _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
+            _mm_mfence();
+            
             // Verify what we're about to send
-            uint64_t verify_value = *rdma_head_ptr;
+            // uint64_t verify_value = *rdma_head_ptr;
             // std::cout << "[RECV_RDMA_WRITE] Writing head=" << new_head 
             //           << " (verified value at head_ptr=" << verify_value << ")"
             //           << " FROM local head_ptr=0x" << std::hex << reinterpret_cast<uint64_t>(rdma_head_ptr)

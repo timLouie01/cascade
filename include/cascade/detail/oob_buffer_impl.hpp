@@ -96,12 +96,12 @@ inline uint64_t oob_send_buffer<CascadeTypes...>::get_write_location() {
     // Get volatile pointer once, like in run_send()
     const uint64_t chunk_size = 5 * 1024; // 5 KiB
     volatile uint64_t* send_tail_ptr = reinterpret_cast<volatile uint64_t*>(send_tail.load());
-    uint64_t current_send_tail = *send_tail_ptr;
+    // uint64_t current_send_tail = *send_tail_ptr;
     uint64_t buffer_start = reinterpret_cast<uint64_t>(buff);
-    if (current_send_tail + chunk_size > ring_size){
+    if (*send_tail_ptr + chunk_size > ring_size){
         return buffer_start;
     }else{
-        return buffer_start + current_send_tail;
+        return buffer_start + *send_tail_ptr ;
     }
 }
 template<typename... CascadeTypes>
@@ -169,8 +169,7 @@ template<typename... CascadeTypes>
         // size_t space = (ring_size - *rdma_send_tail_ptr) + *rdma_head_ptr;
         // if (available_space > 0) available_space -= 1;  // Reserve 1 byte to distinguish full from empty
         // return (space > 0) ? space - 1: 0;
-        // TODO OPTIMIZE THIS
-        return ((ring_size - *rdma_send_tail_ptr) > 0)? (ring_size - *rdma_send_tail_ptr) -1: 0;
+        return ((ring_size - *rdma_send_tail_ptr) + *rdma_head_ptr > 0)? (ring_size - *rdma_send_tail_ptr) + *rdma_head_ptr-1: 0;
     } else {
         // Wrap case: head is ahead of send_tail 
         // Available space = head - send_tail - 1

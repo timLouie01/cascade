@@ -418,7 +418,7 @@ private:
                 data.message[sizeof(data.message) - 1] = '\0'; // Ensure null termination
                 
                 // Log send timestamp
-                TimestampLogger::log(LOG_OOBWRITE_SEND, client.get_my_id(), data.sequence_number);
+                // TimestampLogger::log(LOG_OOBWRITE_SEND, client.get_my_id(), data.sequence_number);
                 
                 // Remove excessive debug output that might cause issues
                 // if (i % 5000 == 0) {
@@ -427,6 +427,7 @@ private:
                 
                 // Double-check space availability just before writing
                 if (send_buf->can_fit(sizeof(TestData))) {
+                     TimestampLogger::log(LOG_OOBWRITE_SEND, client.get_my_id(), data.sequence_number);
                     send_buf->write(reinterpret_cast<uint64_t>(&data), sizeof(TestData), false);
                 } 
                 // else {

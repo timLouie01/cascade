@@ -626,7 +626,7 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
             } else {
                 // Normal case: just advance the head
                 new_head = *rdma_head_ptr + consume_size;
-            // }
+            }
             *rdma_head_ptr = new_head;
 
             // Verify what we're about to send

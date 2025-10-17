@@ -256,8 +256,8 @@ template<typename... CascadeTypes>
     _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_send_tail_ptr)));
     _mm_mfence();  // Ensure flushes complete before reading
 
-    std::cout << "[SPACE_DEBUG] head=" << *rdma_head_ptr << "tail" << *rdma_tail_ptr << ", send_tail=" << *rdma_send_tail_ptr 
-                  << ", available=" << get_available_space() << " (WRAP ENABLED)" << std::endl;
+    // std::cout << "[SPACE_DEBUG] head=" << *rdma_head_ptr << "tail" << *rdma_tail_ptr << ", send_tail=" << *rdma_send_tail_ptr 
+    //               << ", available=" << get_available_space() << " (WRAP ENABLED)" << std::endl;
     return get_available_space() >= size;
 }
 template<typename... CascadeTypes>

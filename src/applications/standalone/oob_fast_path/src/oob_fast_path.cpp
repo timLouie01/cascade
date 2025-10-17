@@ -376,7 +376,8 @@ private:
         const auto start_time = std::chrono::high_resolution_clock::now();
         
         // SLOW DOWN SENDING TO OBSERVE HEAD UPDATES
-        const int slow_down_us = ;  // Sleep 50ms between messages
+        const int slow_down_us = 30;  
+        // Sleep 50ms between messages
         // std::cout << "[SEND_THREAD] SLOW MODE ENABLED: " << slow_down_ms << "ms between messages" << std::endl;
         
         for (int i = 0; i < num_messages; ++i) {

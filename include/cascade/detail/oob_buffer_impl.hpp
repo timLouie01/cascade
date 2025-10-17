@@ -133,12 +133,12 @@ inline void oob_send_buffer<CascadeTypes...>::advance_tail(size_t bytes_written)
 }
 
 template<typename... CascadeTypes>
-inline size_t oob_send_buffer<CascadeTypes...>::get_available_space() {
+ size_t oob_send_buffer<CascadeTypes...>::get_available_space() {
     // void* head_ptr = head.load();
     // void* send_tail_ptr = send_tail.load();
 
     volatile uint64_t* rdma_head_ptr = reinterpret_cast<volatile uint64_t*>(head.load());
-    volatile uint64_t* rdma_tail_ptr = reinterpret_cast<volatile uint64_t*>(tail.load());
+    // volatile uint64_t* rdma_tail_ptr = reinterpret_cast<volatile uint64_t*>(tail.load());
     volatile uint64_t* rdma_send_tail_ptr = reinterpret_cast<volatile uint64_t*>(send_tail.load());
     
     // CRITICAL: Flush cache lines before reading to ensure we see latest values
@@ -155,9 +155,9 @@ inline size_t oob_send_buffer<CascadeTypes...>::get_available_space() {
     // uint64_t send_tail_offset = *reinterpret_cast<volatile uint64_t*>(send_tail_ptr);
     
     // Validate offsets are within ring bounds
-    if (*rdma_head_ptr >= ring_size || *rdma_tail_ptr >= ring_size) {
+    if (*rdma_head_ptr >= ring_size || *rdma_send_tail_ptr >= ring_size) {
         std::cout << "[SPACE_ERROR] Invalid offsets: head=" << *rdma_head_ptr 
-                  << ", send_tail=" << *rdma_tail_ptr << ", ring_size=" << ring_size << std::endl;
+                  << ", send_tail=" << *rdma_send_tail_ptr << ", ring_size=" << ring_size << std::endl;
         return 0;  // Conservative: no space available if offsets are corrupted
     }
     
@@ -216,7 +216,7 @@ inline void oob_send_buffer<CascadeTypes...>::write(uint64_t local_addr, size_t 
 }
 
 template<typename... CascadeTypes>
-inline bool oob_send_buffer<CascadeTypes...>::can_fit(size_t size) {
+ bool oob_send_buffer<CascadeTypes...>::can_fit(size_t size) {
     return get_available_space() >= size;
 }
 template<typename... CascadeTypes>

@@ -208,8 +208,8 @@ template<typename... CascadeTypes>
     // // Debug output occasionally
     // static int space_debug_count = 0;
     // if (++space_debug_count % 100 == 0) {
-        std::cout << "[SPACE_DEBUG] head=" << *rdma_head_ptr << "tail" << *rdma_tail_ptr << ", send_tail=" << *rdma_send_tail_ptr 
-                  << ", available=" << available_space << " (WRAP ENABLED)" << std::endl;
+        // std::cout << "[SPACE_DEBUG] head=" << *rdma_head_ptr << "tail" << *rdma_tail_ptr << ", send_tail=" << *rdma_send_tail_ptr 
+        //           << ", available=" << available_space << " (WRAP ENABLED)" << std::endl;
     // }
     
     // return available_space;
@@ -242,6 +242,8 @@ inline void oob_send_buffer<CascadeTypes...>::write(uint64_t local_addr, size_t 
 
 template<typename... CascadeTypes>
  bool oob_send_buffer<CascadeTypes...>::can_fit(size_t size) {
+    std::cout << "[SPACE_DEBUG] head=" << *rdma_head_ptr << "tail" << *rdma_tail_ptr << ", send_tail=" << *rdma_send_tail_ptr 
+                  << ", available=" << get_available_space() << " (WRAP ENABLED)" << std::endl;
     return get_available_space() >= size;
 }
 template<typename... CascadeTypes>

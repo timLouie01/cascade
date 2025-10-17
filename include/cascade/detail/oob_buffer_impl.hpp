@@ -161,17 +161,23 @@ inline size_t oob_send_buffer<CascadeTypes...>::get_available_space() const {
         return 0;  // Conservative: no space available if offsets are corrupted
     }
     
-    volatile size_t available_space;
+    // volatile size_t available_space;
     if (*rdma_send_tail_ptr >= *rdma_head_ptr) {
         // Normal case: send_tail is ahead of head
         // Available space = (end of ring - send_tail) + (head - start) - 1
-        available_space = (ring_size - *rdma_send_tail_ptr) + *rdma_head_ptr;
-        if (available_space > 0) available_space -= 1;  // Reserve 1 byte to distinguish full from empty
+        // available_space = (ring_size - *rdma_send_tail_ptr) + *rdma_head_ptr;
+        // size_t space = (ring_size - *rdma_send_tail_ptr) + *rdma_head_ptr;
+        // if (available_space > 0) available_space -= 1;  // Reserve 1 byte to distinguish full from empty
+        // return (space > 0) ? space - 1: 0;
+        return ((ring_size - *rdma_send_tail_ptr) + *rdma_head_ptr > 0)? (ring_size - *rdma_send_tail_ptr) + *rdma_head_ptr-1: 0;
     } else {
         // Wrap case: head is ahead of send_tail 
         // Available space = head - send_tail - 1
-        available_space = *rdma_head_ptr - *rdma_send_tail_ptr;
-        if (available_space > 0) available_space -= 1;  // Reserve 1 byte to distinguish full from empty
+        // available_space = *rdma_head_ptr - *rdma_send_tail_ptr;
+        // size_t size = *rdma_head_ptr - *rdma_send_tail_ptr;
+        // return (space > 0) ? space - 1: 0;
+        return (*rdma_head_ptr - *rdma_send_tail_ptr > 0)? *rdma_head_ptr - *rdma_send_tail_ptr -1: 0;
+        // if (available_space > 0) available_space -= 1;  // Reserve 1 byte to distinguish full from empty
     }
     
     // // Debug output occasionally
@@ -620,13 +626,13 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
             
             // PROPER WRAP-AROUND: Advance our head with jump-to-beginning logic
             volatile uint64_t new_head;
-            if (*rdma_head_ptr + consume_size > ring_size) {
+            // if (*rdma_head_ptr + consume_size > ring_size) {
                 // If we would exceed the ring size, jump to the beginning + consume
-                new_head = consume_size;
-            } else {
+                // new_head = consume_size;
+            // } else {
                 // Normal case: just advance the head
                 new_head = *rdma_head_ptr + consume_size;
-            }
+            // }
             *rdma_head_ptr = new_head;
 
             // Verify what we're about to send

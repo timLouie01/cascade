@@ -133,7 +133,8 @@ inline void oob_send_buffer<CascadeTypes...>::advance_tail(size_t bytes_written)
 }
 
 template<typename... CascadeTypes>
- size_t oob_send_buffer<CascadeTypes...>::get_available_space() {
+ size_t oob_send_buffer<CascadeTypes...>::
+ .get_available_space() {
     // void* head_ptr = head.load();
     // void* send_tail_ptr = send_tail.load();
 
@@ -165,17 +166,24 @@ template<typename... CascadeTypes>
     // volatile size_t available_space;
     if (*rdma_send_tail_ptr > *rdma_head_ptr) {
         // Normal case: send_tail is ahead of head
-        // Available space = (end of ring - send_tail) + (head - start) - 1
-        // available_space = (ring_size - *rdma_send_tail_ptr) + *rdma_head_ptr;
-        // size_t space = (ring_size - *rdma_send_tail_ptr) + *rdma_head_ptr;
-        // if (available_space > 0) available_space -= 1;  // Reserve 1 byte to distinguish full from empty
-        // return (space > 0) ? space - 1: 0;
-        if (ring_size - *rdma_send_tail_ptr < chunk_size){
-            return (*rdma_head_ptr >= chunk_size) ? chunk_size : 0;
-        }else{
-            return ring_size - *rdma_send_tail_ptr;
+        // Return CONTIGUOUS space only - either space to end OR space at beginning (if we can wrap)
+        size_t space_to_end = ring_size - *rdma_send_tail_ptr;
+        
+        if (space_to_end >= chunk_size) {
+            // Enough contiguous space before wrap - return it
+            return space_to_end;
+        } else {
+            // Not enough space to end - check if we can wrap to beginning
+            // We can wrap if head has moved far enough from start
+            size_t space_at_beginning = *rdma_head_ptr;
+            if (space_at_beginning > chunk_size) {
+                // Safe to wrap - return contiguous space at beginning (minus safety margin)
+                return (space_at_beginning > 0) ? space_at_beginning - 1 : 0;
+            } else {
+                // Can't wrap yet - no contiguous space available
+                return 0;
+            }
         }
-        // return ((ring_size - *rdma_send_tail_ptr) + *rdma_head_ptr > 0)? (ring_size - *rdma_send_tail_ptr) + *rdma_head_ptr-1: 0;
     } 
     else if (*rdma_send_tail_ptr == *rdma_head_ptr) {
         // Check tail to distinguish EMPTY vs FULL

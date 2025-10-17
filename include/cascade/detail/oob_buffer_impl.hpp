@@ -187,7 +187,7 @@ inline size_t oob_send_buffer<CascadeTypes...>::get_available_space() const {
         //           << ", available=" << available_space << " (WRAP ENABLED)" << std::endl;
     // }
     
-    return available_space;
+    // return available_space;
 }
 
 template<typename... CascadeTypes>

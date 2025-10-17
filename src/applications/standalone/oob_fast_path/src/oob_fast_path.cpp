@@ -386,7 +386,7 @@ private:
         const auto start_time = std::chrono::high_resolution_clock::now();
         
         // SLOW DOWN SENDING TO OBSERVE HEAD UPDATES
-        const int slow_down_us = 30;  
+        const int slow_down_us = 15;  
         // Sleep 50ms between messages
         // std::cout << "[SEND_THREAD] SLOW MODE ENABLED: " << slow_down_ms << "ms between messages" << std::endl;
         
@@ -456,6 +456,8 @@ private:
         std::cout << "[SEND_THREAD] Completed sending " << num_messages << std::endl;
         
         TimestampLogger::flush("send_oob_fast_path_timestamp.dat");
+        const int break_ms = 100;  
+        std::this_thread::sleep_for(std::chrono::microseconds(break_ms));
         std::cout << "[SEND_THREAD] Flushed send timestamps" << std::endl;
     }
     
@@ -483,10 +485,10 @@ private:
                 //           << ": " << test_data->message << " (count: " << count << ")" << std::endl;
                 
                 // Progress updates every 1000 messages
-                if (count % 1000 == 0) {
-                    std::cout << "[RECV-ZERO-COPY] Progress: " << count 
-                              << "/" << expected_messages << " messages received" << std::endl;
-                }
+                // if (count % 1000 == 0) {
+                //     std::cout << "[RECV-ZERO-COPY] Progress: " << count 
+                //               << "/" << expected_messages << " messages received" << std::endl;
+                // }
                 
                 // Check if we've received all expected messages
                 if (count >= expected_messages) {

@@ -481,14 +481,14 @@ private:
                 }
                 
                 // Uncomment for detailed logging:
-                // std::cout << "[RECV-ZERO-COPY] Received message " << test_data->sequence_number 
-                //           << ": " << test_data->message << " (count: " << count << ")" << std::endl;
+                std::cout << "[RECV-ZERO-COPY] Received message " << test_data->sequence_number 
+                          << ": " << test_data->message << " (count: " << count << ")" << std::endl;
                 
                 // Progress updates every 1000 messages
-                if (count % 100 == 0) {
-                    std::cout << "[RECV-ZERO-COPY] Progress: " << count 
-                              << "/" << expected_messages << " messages received" << std::endl;
-                }
+                // if (count % 100 == 0) {
+                //     std::cout << "[RECV-ZERO-COPY] Progress: " << count 
+                //               << "/" << expected_messages << " messages received" << std::endl;
+                // }
                 
                 // Check if we've received all expected messages
                 if (count >= expected_messages) {

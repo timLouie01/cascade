@@ -456,8 +456,8 @@ private:
         std::cout << "[SEND_THREAD] Completed sending " << num_messages << std::endl;
         
         TimestampLogger::flush("send_oob_fast_path_timestamp.dat");
-        const int break_ms = 100;  
-        std::this_thread::sleep_for(std::chrono::microseconds(break_ms));
+        const int break_ms = 1000;  
+        std::this_thread::sleep_for(std::chrono::milliseconds(break_ms));
         std::cout << "[SEND_THREAD] Flushed send timestamps" << std::endl;
     }
     

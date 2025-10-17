@@ -468,10 +468,10 @@ private:
                 // std::cout << "[RECV-ZERO-COPY] Received message " << test_data->sequence_number 
                 //           << ": " << test_data->message << " (size: " << size << ")" << "received counter is: " << received_count << std::endl;
                 
-                if (received_count % 100 == 0) {
-                    std::cout << "[RECV-ZERO-COPY] Progress: " << received_count 
-                              << "/" << expected_messages << " messages received" << std::endl;
-                }
+                // if (received_count % 100 == 0) {
+                //     std::cout << "[RECV-ZERO-COPY] Progress: " << received_count 
+                //               << "/" << expected_messages << " messages received" << std::endl;
+                // }
                 
                 // Check if we've received all expected messages
                 if (received_count >= expected_messages) {

@@ -450,7 +450,7 @@ private:
     
     // Zero-copy lock mode: Direct access with lock/release
     void process_received_data_zero_copy(ServiceClient<VolatileCascadeStoreWithStringKey, PersistentCascadeStoreWithStringKey, TriggerCascadeNoStoreWithStringKey>& client, 
-                                         const void* data, size_t size, std::function<void()> release_func) {
+                                         const void* data, size_t size) {
         static int received_count = 0;
         static auto start_time = std::chrono::high_resolution_clock::now();
         static const int expected_messages = 1000;

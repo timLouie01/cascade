@@ -385,14 +385,11 @@ private:
         const int num_messages = 10000;
         const auto start_time = std::chrono::high_resolution_clock::now();
         
-        // SLOW DOWN SENDING TO OBSERVE HEAD UPDATES
-        const int slow_down_us = 15;  
-        // Sleep 50ms between messages
-        // std::cout << "[SEND_THREAD] SLOW MODE ENABLED: " << slow_down_ms << "ms between messages" << std::endl;
+        // For minimum latency: Remove artificial delays, rely on natural backpressure
+        // The can_fit() check will naturally pace the sender when buffer fills
         
         for (int i = 0; i < num_messages; ++i) {
-            // SLOW DOWN: Sleep between each message to allow head to advance
-            std::this_thread::sleep_for(std::chrono::microseconds(slow_down_us));
+            // NO artificial delay - let hardware run at full speed!
             // Yield to other threads every 50 messages
             // if (i % 50 == 0) {
             //     std::this_thread::yield();
@@ -407,18 +404,9 @@ private:
             //     _mm_pause();
             // }
             
-            // Wait for space with better yielding strategy
-            int wait_cycles = 0;
+            // Wait for space with tight spinning (for minimum latency)
             while (!send_buf->can_fit(sizeof(TestData))) {
-                _mm_pause();
-                // Yield more frequently to prevent starving other threads
-                if (++wait_cycles % 500 == 0) {
-                    std::this_thread::yield();
-                    // Sleep briefly every 2000 wait cycles
-                    if (wait_cycles % 2000 == 0) {
-                        std::this_thread::sleep_for(std::chrono::microseconds(50));
-                    }
-                }
+                _mm_pause();  // Just pause, no yields or sleeps
             }
             
             try {

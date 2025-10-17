@@ -479,9 +479,8 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
             std::this_thread::yield();
             
         } else {
-            // Yield to other threads (like Derecho) when no data to send
-            std::this_thread::yield();
-            std::this_thread::sleep_for(1ms);  // 1ms instead of 50us
+            // Just pause when no data to send (for minimum latency)
+            _mm_pause();
         }
     }
 }
@@ -610,9 +609,8 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
                     // We can consume a full 5KiB chunk
                     consume_size = chunk_size;
                 } else {
-                    // No data to consume
-                    std::this_thread::yield();
-                    std::this_thread::sleep_for(1ms);
+                    // No data to consume - just pause and retry (for minimum latency)
+                    _mm_pause();
                     continue;
                 }
             } else {
@@ -631,9 +629,8 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
                     // We can consume a full 5KiB chunk
                         consume_size = chunk_size;
                     } else {
-                        // No data to consume
-                        std::this_thread::yield();
-                        std::this_thread::sleep_for(1ms);
+                        // No data to consume - just pause and retry (for minimum latency)
+                        _mm_pause();
                         continue;
                     }
                     
@@ -723,9 +720,8 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
             // Yield briefly to allow Derecho threads to run
             std::this_thread::yield();
         } else {
-            // Yield to other threads (like Derecho) when no data available
-            std::this_thread::yield();
-            std::this_thread::sleep_for(1ms);  // 1ms instead of 10us
+            // Just pause when no data available (for minimum latency)
+            _mm_pause();
         }
     }
 }

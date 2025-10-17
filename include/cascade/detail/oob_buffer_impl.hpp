@@ -162,7 +162,7 @@ template<typename... CascadeTypes>
     }
     const uint64_t chunk_size = 5 * 1024; // 5 KiB
     // volatile size_t available_space;
-    if (*rdma_send_tail_ptr >= *rdma_head_ptr) {
+    if (*rdma_send_tail_ptr > *rdma_head_ptr) {
         // Normal case: send_tail is ahead of head
         // Available space = (end of ring - send_tail) + (head - start) - 1
         // available_space = (ring_size - *rdma_send_tail_ptr) + *rdma_head_ptr;
@@ -170,20 +170,39 @@ template<typename... CascadeTypes>
         // if (available_space > 0) available_space -= 1;  // Reserve 1 byte to distinguish full from empty
         // return (space > 0) ? space - 1: 0;
         if (ring_size - *rdma_send_tail_ptr < chunk_size){
-            return *rdma_head_ptr;
+            return (*rdma_head_ptr >= chunk_size) ? chunk_size : 0;
         }else{
             return ring_size - *rdma_send_tail_ptr;
         }
         // return ((ring_size - *rdma_send_tail_ptr) + *rdma_head_ptr > 0)? (ring_size - *rdma_send_tail_ptr) + *rdma_head_ptr-1: 0;
-    } else {
+    } 
+    else if (*rdma_send_tail_ptr == *rdma_head_ptr) {
+        // Check tail to distinguish EMPTY vs FULL
+        
+        if (*rdma_tail_ptr == *rdma_head_ptr) {
+            // All three equal → EMPTY buffer
+            // Can write up to (ring_size)
+            return ring_size;
+        } else {
+            // send_tail == head but tail != head → FULL buffer
+            // App has written all the way around and caught up to head
+            // No space available (receiver needs to consume more)
+            return 0;
+        }
+    }
+    else {
+        return *rdma_head_ptr - *rdma_send_tail_ptr;
+    }
+    // else {
         // Wrap case: head is ahead of send_tail 
         // Available space = head - send_tail - 1
         // available_space = *rdma_head_ptr - *rdma_send_tail_ptr;
         // size_t size = *rdma_head_ptr - *rdma_send_tail_ptr;
         // return (space > 0) ? space - 1: 0;
-        return (*rdma_head_ptr - *rdma_send_tail_ptr > 0)? *rdma_head_ptr - *rdma_send_tail_ptr -1: 0;
+        // return *rdma_head_ptr - *rdma_send_tail_ptr;
+        // return (*rdma_head_ptr - *rdma_send_tail_ptr > 0)? *rdma_head_ptr - *rdma_send_tail_ptr -1: 0;
         // if (available_space > 0) available_space -= 1;  // Reserve 1 byte to distinguish full from empty
-    }
+    // }
     
     // // Debug output occasionally
     // static int space_debug_count = 0;

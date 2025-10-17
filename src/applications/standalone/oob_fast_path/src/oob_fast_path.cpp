@@ -561,8 +561,8 @@ private:
             // [this, &client](const void* data, size_t size, std::function<void()> release_func) {
             //     this->process_received_data_zero_copy(client, data, size, release_func);
             // });
-            [this, &client](const void* data, size_t size) {
-                this->process_received_data_zero_copy(client, data, size);
+            [this](const void* data, size_t size) {
+                this->process_received_data_zero_copy(data, size);
             });
     }
     

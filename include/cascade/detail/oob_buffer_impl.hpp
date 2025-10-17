@@ -208,8 +208,8 @@ template<typename... CascadeTypes>
     // // Debug output occasionally
     // static int space_debug_count = 0;
     // if (++space_debug_count % 100 == 0) {
-        // std::cout << "[SPACE_DEBUG] head=" << *rdma_head_ptr << ", send_tail=" << *rdma_send_tail_ptr 
-        //           << ", available=" << available_space << " (WRAP ENABLED)" << std::endl;
+        std::cout << "[SPACE_DEBUG] head=" << *rdma_head_ptr << "tail" << *rdma_tail_ptr << ", send_tail=" << *rdma_send_tail_ptr 
+                  << ", available=" << available_space << " (WRAP ENABLED)" << std::endl;
     // }
     
     // return available_space;
@@ -686,6 +686,7 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
                 false
                     //true  // MAKE IT SYNCHRONOUS TO ENSURE COMPLETION
             );
+             std::cout << "[RECV_DATA] RDMA write COMPLETED" << *rdma_head_ptr  << std::endl;
             // std::cout << "[RECV_DATA] RDMA write COMPLETED (synchronous) for head=" << *rdma_head_ptr << std::endl;
             // std::cout.flush();
             

@@ -133,8 +133,7 @@ inline void oob_send_buffer<CascadeTypes...>::advance_tail(size_t bytes_written)
 }
 
 template<typename... CascadeTypes>
- size_t oob_send_buffer<CascadeTypes...>::
- .get_available_space() {
+ size_t oob_send_buffer<CascadeTypes...>::get_available_space() {
     // void* head_ptr = head.load();
     // void* send_tail_ptr = send_tail.load();
 

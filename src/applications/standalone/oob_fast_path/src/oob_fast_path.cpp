@@ -405,9 +405,9 @@ private:
             // }
             
             // Wait for space with tight spinning (for minimum latency)
-            // while (!send_buf->can_fit(sizeof(TestData))) {
-            //     _mm_pause();  // Just pause, no yields or sleeps
-            // }
+             while (!send_buf->can_fit(sizeof(TestData))) {
+                 _mm_pause();  // Just pause, no yields or sleeps
+            }
             
             // PACE Sender by waiting for there to be fewer than 2 full chunks
             while (send_buf->get_fill_chunks() >= 2) {

@@ -229,6 +229,17 @@ template<typename... CascadeTypes>
 }
 
 template<typename... CascadeTypes>
+size_t oob_send_buffer<CascadeTypes...>::get_fill_chunks() {
+    volatile uint64_t* rdma_head_ptr = reinterpret_cast<volatile uint64_t*>(head.load());
+    volatile uint64_t* rdma_tail_ptr = reinterpret_cast<volatile uint64_t*>(tail.load());
+    _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
+    _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
+    uint64_t bytes_in_buff = (*rdma_tail_ptr >= *rdma_head_ptr) ? (*rdma_tail_ptr - *rdma_head_ptr) : (ring_size - *rdma_head_ptr + *rdma_tail_ptr);
+    const uint64_t chunk_size = 5 * 1024; // 5 KiB
+    return bytes_in_buff / chunk_size;
+}
+
+template<typename... CascadeTypes>
 inline void oob_send_buffer<CascadeTypes...>::write(uint64_t local_addr, size_t size, bool local_gpu) {
     void* src = reinterpret_cast<void*>(local_addr);
     

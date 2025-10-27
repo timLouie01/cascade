@@ -14,6 +14,9 @@ namespace cascade {
 template<typename... CascadeTypes>
 class ServiceClient;
 
+/*
+TODO: Fix the chunk size setting in the send and recv (currently set to 5Kib) enable easy toggling!
+*/
 template<typename... CascadeTypes>
 class oob_send_buffer {
 public:
@@ -47,6 +50,11 @@ public:
   
   // Check if data can fit in the buffer (moved from ServiceClient)
   bool can_fit(size_t size);
+
+  /**
+   * Returns the number of chunks currently in the buffer
+   */
+  size_t get_fill_chunks();
 
 private:
   void* buff {nullptr};

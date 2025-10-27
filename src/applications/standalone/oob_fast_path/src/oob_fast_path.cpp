@@ -465,9 +465,10 @@ private:
                 
                 int count = ++received_count;  // Atomic increment
                 
-                if (client_ptr) {
-                    TimestampLogger::log(LOG_OOBWRITE_RECV, client_ptr->get_my_id(), test_data->sequence_number);
-                }
+                // Payload Process Timestamp
+                // if (client_ptr) {
+                //     TimestampLogger::log(LOG_OOBWRITE_RECV, client_ptr->get_my_id(), test_data->sequence_number);
+                // }
                 
                 // Uncomment for detailed logging:
                 // std::cout << "[RECV-ZERO-COPY] Received message " << test_data->sequence_number 

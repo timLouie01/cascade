@@ -5,6 +5,9 @@
 #include <pthread.h>
 #include <immintrin.h>
 #include "cascade/utils.hpp"
+#ifndef LOG_OOBWRITE_RECV
+#define LOG_OOBWRITE_RECV 7006
+#endif
 #ifdef USE_CUDA
 #include <cuda_runtime.h>
 #endif
@@ -551,6 +554,10 @@ inline void oob_recv_buffer<CascadeTypes...>::stop() {
     if (receiving_thread.joinable()) receiving_thread.join();
 }
 
+// ============================================================================
+// OLD VERSION: Original run_recv implementation (single chunk processing)
+// ============================================================================
+/*
 template<typename... CascadeTypes>
 inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
     using namespace std::chrono_literals;
@@ -577,6 +584,11 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
 
     std::cout << "[RECV_DEBUG] Starting receive loop, initial head=" << *rdma_head_ptr 
               << ", tail=" << *rdma_tail_ptr << std::endl;
+
+    // Chunk tracking for timestamp logging
+    uint64_t total_chunks_received = 0;
+    const uint64_t chunk_size = 5 * 1024; // 5 KiB
+    const uint64_t expected_total_chunks = 10000;
 
     while (stop_flag.load(std::memory_order_acquire) == 0) {
         // CRITICAL: Flush tail cache line to see latest RDMA-updated value from sender
@@ -638,6 +650,8 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
                 }
             }
             
+            uint64_t chunks_available = available_data / chunk_size;
+
             if (has_subscriber) {
                 if (subscription_mode == SubscriptionMode::ZERO_COPY_LOCK) {
                     // Zero-copy mode: provide direct access with lock/release mechanism
@@ -724,6 +738,160 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
             _mm_pause();
         }
     }
+}
+*/
+
+// ============================================================================
+// NEW VERSION: Enhanced run_recv with batch chunk processing and timestamp logging
+// ============================================================================
+template<typename... CascadeTypes>
+inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
+    using namespace std::chrono_literals;
+
+    // Pin this receiving thread to specified core if requested
+    if (cpu_core_id >= 0) {
+        cpu_set_t cpuset;
+        CPU_ZERO(&cpuset);
+        CPU_SET(cpu_core_id, &cpuset);
+        int rc = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+        if (rc != 0) {
+            dbg_default_warn("Failed to set CPU affinity for receiving thread to core {}: {}", cpu_core_id, strerror(rc));
+        } else {
+            dbg_default_info("Receiving thread pinned to core {}", cpu_core_id);
+        }
+    } else {
+        dbg_default_info("Receiving thread started without CPU pinning");
+    }
+
+    // Get volatile pointers ONCE before the loop
+    volatile uint64_t* rdma_head_ptr = reinterpret_cast<volatile uint64_t*>(head.load());
+    volatile uint64_t* rdma_tail_ptr = reinterpret_cast<volatile uint64_t*>(tail.load());
+
+    std::cout << "[RECV_DEBUG] Starting NEW receive loop with batch processing, initial head=" << *rdma_head_ptr 
+              << ", tail=" << *rdma_tail_ptr << std::endl;
+
+    // Chunk tracking for timestamp logging
+    uint64_t total_chunks_received = 0;
+    const uint64_t chunk_size = 5 * 1024; // 5 KiB
+    const uint64_t expected_total_chunks = 10000;
+
+    while (stop_flag.load(std::memory_order_acquire) == 0) {
+        // Flush tail cache line to see latest RDMA-updated value from sender
+        _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
+        _mm_mfence();
+        
+        if (*rdma_tail_ptr != *rdma_head_ptr) {
+            uint64_t buffer_start = reinterpret_cast<uint64_t>(buff);
+            uint64_t available_data;
+            
+            // Calculate available data with wrap-around logic
+            if (*rdma_tail_ptr >= *rdma_head_ptr) {
+                // Normal case: tail is ahead of or equal to head
+                available_data = *rdma_tail_ptr - *rdma_head_ptr;
+            } else {
+                // Wrap case: tail has wrapped around, head hasn't
+                uint64_t space_to_end = ring_size - *rdma_head_ptr;
+                if (space_to_end >= chunk_size) {
+                    available_data = space_to_end;
+                } else {
+                    // Jump to front
+                    *rdma_head_ptr = 0;
+                    available_data = *rdma_tail_ptr - *rdma_head_ptr;
+                }
+            }
+            
+            // Calculate number of complete chunks available
+            uint64_t chunks_available = available_data / chunk_size;
+            
+            if (chunks_available == 0) {
+                // No complete chunks available - just pause and retry
+                _mm_pause();
+                continue;
+            }
+            
+            // LOOP 1: Log timestamps for all available chunks FIRST
+            for (uint64_t i = 0; i < chunks_available && total_chunks_received + i < expected_total_chunks; ++i) {
+                TimestampLogger::log(LOG_OOBWRITE_RECV, this->service_client.get_my_id(), total_chunks_received + i + 1);
+            }
+            
+            // LOOP 2: Now process each chunk
+            for (uint64_t i = 0; i < chunks_available && total_chunks_received < expected_total_chunks; ++i) {
+                uint64_t consume_size = chunk_size;
+                
+                // Deliver to subscriber if present
+                if (has_subscriber) {
+                    if (subscription_mode == SubscriptionMode::ZERO_COPY_LOCK) {
+                        if (zero_copy_callback) {
+                            zero_copy_callback(
+                                reinterpret_cast<const void*>(buffer_start + *rdma_head_ptr), 
+                                consume_size
+                            );
+                        }
+                    } else if (subscription_mode == SubscriptionMode::MEMORY_COPY) {
+                        if (memory_copy_callback && dest_memory && consume_size <= memory_size) {
+                            std::memcpy(dest_memory, 
+                                       reinterpret_cast<const void*>(buffer_start + *rdma_head_ptr), 
+                                       consume_size);
+                            memory_copy_callback(dest_memory, consume_size);
+                        }
+                    }
+                }
+                
+                // Advance head for this chunk
+                uint64_t new_head = *rdma_head_ptr + consume_size;
+                
+                // Handle wrap-around if needed
+                if (new_head >= ring_size) {
+                    new_head = 0;
+                }
+                
+                *rdma_head_ptr = new_head;
+                
+                // Increment chunk counter
+                total_chunks_received++;
+                
+                // Print progress periodically
+                // if (total_chunks_received % 1000 == 0) {
+                //     std::cout << "[RECV_PROGRESS] Received " << total_chunks_received 
+                //               << " / " << expected_total_chunks << " chunks" << std::endl;
+                // }
+            }
+            
+            // Flush head cache line after all chunk updates
+            _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
+            _mm_mfence();
+
+            // Notify sender of new head position via RDMA
+            this->service_client.template oob_memwrite<typename std::tuple_element<0, std::tuple<CascadeTypes...>>::type>(
+                this->head_addr,
+                this->send_node,
+                this->head_r_key,
+                sizeof(uint64_t),
+                false,
+                reinterpret_cast<uint64_t>(rdma_head_ptr),
+                false,
+                false
+            );
+            
+            // Ensure RDMA head update is ordered and visible
+            std::atomic_thread_fence(std::memory_order_release);
+            
+            // Check if we've received all expected chunks
+            // if (total_chunks_received >= expected_total_chunks) {
+            //     std::cout << "[RECV_COMPLETE] Received all " << total_chunks_received 
+            //               << " chunks. Flushing timestamps..." << std::endl;
+            //     TimestampLogger::flush("recv_oob_fast_path_timestamp.dat");
+            //     std::cout << "[RECV_COMPLETE] Timestamp flush complete." << std::endl;
+            // }
+            
+        } else {
+            // Just pause when no data available (for minimum latency)
+            _mm_pause();
+        }
+    }
+    
+    // Final report on shutdown
+    std::cout << "[RECV_SHUTDOWN] Total chunks received: " << total_chunks_received << std::endl;
 }
 
 // Subscriber Management Methods

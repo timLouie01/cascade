@@ -59,7 +59,7 @@ private:
     // Data structure for sending meaningful data
     struct TestData {
         uint64_t sequence_number;
-        char message[5112];
+        char message[16376];  // 16384 - 8 = 16376 bytes to exactly match 16KB
     };
     
     // Connection payload using POD structs (no std::optional)
@@ -505,9 +505,16 @@ private:
                 
                 data->sequence_number = i + 1;
                 
-                // Build message directly in buffer without any temporary strings or copies
-                int msg_len = snprintf(data->message, sizeof(data->message), 
-                                     "| I am data element %d |", static_cast<int>(i + 1));
+                // Fill the entire message buffer by repeating the pattern using snprintf
+                size_t pos = 0;
+                while (pos < sizeof(data->message) - 1) {
+                    int written = snprintf(data->message + pos, sizeof(data->message) - pos, 
+                                         "| I am data element %d |", static_cast<int>(i + 1));
+                    if (written <= 0) break;
+                    pos += written;
+                    if (pos >= sizeof(data->message) - 1) break; // Prevent overflow
+                }
+                data->message[sizeof(data->message) - 1] = '\0';
                 
                 // Log send timestamp
                 TimestampLogger::log(LOG_OOBWRITE_SEND, client.get_my_id(), data->sequence_number);

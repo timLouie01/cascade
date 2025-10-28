@@ -490,8 +490,8 @@ private:
             //     std::cout << "[SEND_DEBUG] Message " << i << ": fill_chunks=" << fill_chunks << ", available=" << available << " bytes, sleep=" << sleep_time_us << "us" << std::endl;
             // }
             
-            // PACE Sender by waiting for there to be fewer than 2 full chunks (conditional)
-            while (send_buf->get_fill_chunks() >= 1) {
+            // PACE Sender by waiting for there to be fewer than chunk_threshold full chunks (configurable)
+            while (send_buf->get_fill_chunks() >= chunk_threshold) {
                 _mm_pause();
             }
             

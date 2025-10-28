@@ -26,6 +26,7 @@ inline oob_send_buffer<CascadeTypes...>::oob_send_buffer(void* buff,
                                         std::uint64_t buff_r_key, 
                                         std::uint64_t tail_r_key,
                                         std::uint64_t ring_size,
+                                        std::uint64_t chunk_size,
                                         ServiceClient<CascadeTypes...>& service_client) 
                                   : buff(buff), 
                                   head(head),
@@ -33,6 +34,7 @@ inline oob_send_buffer<CascadeTypes...>::oob_send_buffer(void* buff,
                                   recv_node(recv_node),
                                   recv_udl(std::move(recv_udl)),
                                   ring_size (ring_size),
+                                  chunk_size(chunk_size),
                                   service_client(service_client),
                                   send_head_r_key(service_client.oob_rkey(head)){
     *reinterpret_cast<uint64_t*>(head) = 0;
@@ -63,9 +65,10 @@ oob_send_buffer<CascadeTypes...>::create(void* buff,
                         node_id_t     recv_node,
                         std::string   recv_udl,
                         uint64_t ring_size,
+                        uint64_t chunk_size,
                         ServiceClient<CascadeTypes...>& service_client) {
         auto p = std::unique_ptr<oob_send_buffer<CascadeTypes...>>(
-        new oob_send_buffer<CascadeTypes...>(buff, head, tail, recv_node, std::move(recv_udl), 0, 0, ring_size, service_client)
+        new oob_send_buffer<CascadeTypes...>(buff, head, tail, recv_node, std::move(recv_udl), 0, 0, ring_size, chunk_size, service_client)
     );
     return p;
 }
@@ -97,7 +100,7 @@ template<typename... CascadeTypes>
 uint64_t oob_send_buffer<CascadeTypes...>::get_write_location() {
     // Calculate current write location from send_tail instead of cached value
     // Get volatile pointer once, like in run_send()
-    const uint64_t chunk_size = 5 * 1024; // 5 KiB
+    // Use programmable chunk size instead of hardcoded 5KB
     volatile uint64_t* send_tail_ptr = reinterpret_cast<volatile uint64_t*>(send_tail.load());
     // uint64_t current_send_tail = *send_tail_ptr;
     uint64_t buffer_start = reinterpret_cast<uint64_t>(buff);
@@ -164,7 +167,7 @@ template<typename... CascadeTypes>
                   << ", send_tail=" << *rdma_send_tail_ptr << ", ring_size=" << ring_size << std::endl;
         return 0;  // Conservative: no space available if offsets are corrupted
     }
-    const uint64_t chunk_size = 5 * 1024; // 5 KiB
+    // Use programmable chunk size instead of hardcoded 5KB
     // volatile size_t available_space;
     if (*rdma_send_tail_ptr > *rdma_head_ptr) {
         // Normal case: send_tail is ahead of head
@@ -237,7 +240,7 @@ size_t oob_send_buffer<CascadeTypes...>::get_fill_chunks() {
     _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
     // _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
     _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_send_tail_ptr)));
-    const uint64_t chunk_size = 5 * 1024; // 5 KiB
+    // Use programmable chunk size instead of hardcoded 5KB
     // if (*rdma_send_tail_ptr >= *rdma_head_ptr){
     //     // Not Wrap
     //     return (*rdma_send_tail_ptr - *rdma_head_ptr)/chunk_size;
@@ -399,7 +402,7 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
             // }
             
             uint64_t buffer_start = reinterpret_cast<uint64_t>(buff);
-            const uint64_t chunk_size = 5 * 1024; // 5 KiB
+            const uint64_t chunk_size = this->chunk_size; // programmable chunk size
             uint64_t available_data;
             uint64_t data_size;
             // uint64_t send_from_offset = *rdma_tail_ptr;  // Where to read data from our buffer
@@ -539,6 +542,7 @@ inline oob_recv_buffer<CascadeTypes...>::oob_recv_buffer(void* buff,
                                         node_id_t send_node, 
                                         std::string send_udl,
                                         uint64_t ring_size,
+                                        uint64_t chunk_size,  // NEW: Accept chunk size
                                         ServiceClient<CascadeTypes...>& service_client) 
                                   : buff(buff), 
                                   head(head),
@@ -546,6 +550,7 @@ inline oob_recv_buffer<CascadeTypes...>::oob_recv_buffer(void* buff,
                                   send_node(send_node),
                                   send_udl(std::move(send_udl)),
                                   ring_size(ring_size),
+                                  chunk_size(chunk_size),  // NEW: Store chunk size
                                   service_client(service_client),
                                   r_key_buff(service_client.oob_rkey(buff)),
                                   r_key_tail_copy(service_client.oob_rkey(tail)),
@@ -562,9 +567,10 @@ oob_recv_buffer<CascadeTypes...>::create(void* buff,
                         node_id_t     send_node,
                         std::string   send_udl,
                         std::uint64_t ring_size,
+                        std::uint64_t chunk_size,  // NEW: Accept chunk size
                         ServiceClient<CascadeTypes...>& service_client) {
     auto p = std::unique_ptr<oob_recv_buffer<CascadeTypes...>>(
-        new oob_recv_buffer<CascadeTypes...>(buff, head, tail, send_node, std::move(send_udl), ring_size, service_client)
+        new oob_recv_buffer<CascadeTypes...>(buff, head, tail, send_node, std::move(send_udl), ring_size, chunk_size, service_client)  // NEW: Pass chunk size
     );
     return p;
 }
@@ -627,9 +633,8 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
     std::cout << "[RECV_DEBUG] Starting receive loop, initial head=" << *rdma_head_ptr 
               << ", tail=" << *rdma_tail_ptr << std::endl;
 
-    // Chunk tracking for timestamp logging
-    uint64_t total_chunks_received = 0;
-    const uint64_t chunk_size = 5 * 1024; // 5 KiB
+    // Chunk tracking for timestamp logging (use member so it can be reset)
+    const uint64_t chunk_size = this->chunk_size; // programmable chunk size
     const uint64_t expected_total_chunks = 10000;
 
     while (stop_flag.load(std::memory_order_acquire) == 0) {
@@ -651,7 +656,7 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
             // std::cout << "[RECV_DATA] Processing data: head=" << *rdma_head_ptr << ", tail=" << *rdma_tail_ptr << " (WRAP ENABLED)" << std::endl;
             uint64_t buffer_start = reinterpret_cast<uint64_t>(buff);
             
-            const uint64_t chunk_size = 5 * 1024; // 5 KiB
+            const uint64_t chunk_size = this->chunk_size; // programmable chunk size
             uint64_t available_data;
             uint64_t consume_size;
             
@@ -812,9 +817,8 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
     std::cout << "[RECV_DEBUG] Starting NEW receive loop with batch processing, initial head=" << *rdma_head_ptr 
               << ", tail=" << *rdma_tail_ptr << std::endl;
 
-    // Chunk tracking for timestamp logging
-    uint64_t total_chunks_received = 0;
-    const uint64_t chunk_size = 5 * 1024; // 5 KiB
+    // Chunk tracking for timestamp logging (use member so it can be reset)
+    const uint64_t chunk_size = this->chunk_size; // programmable chunk size
     const uint64_t expected_total_chunks = 10000;
 
     while (stop_flag.load(std::memory_order_acquire) == 0) {
@@ -852,12 +856,12 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
             }
             
             // LOOP 1: Log timestamps for all available chunks FIRST
-            for (uint64_t i = 0; i < chunks_available && total_chunks_received + i < expected_total_chunks; ++i) {
-                TimestampLogger::log(LOG_OOBWRITE_RECV, this->service_client.get_my_id(), total_chunks_received + i + 1);
+            for (uint64_t i = 0; i < chunks_available && this->total_chunks_received.load() + i < expected_total_chunks; ++i) {
+                TimestampLogger::log(LOG_OOBWRITE_RECV, this->service_client.get_my_id(), this->total_chunks_received.load() + i + 1);
             }
             
             // LOOP 2: Now process each chunk
-            for (uint64_t i = 0; i < chunks_available && total_chunks_received < expected_total_chunks; ++i) {
+            for (uint64_t i = 0; i < chunks_available && this->total_chunks_received.load() < expected_total_chunks; ++i) {
                 uint64_t consume_size = chunk_size;
                 
                 // Deliver to subscriber if present
@@ -889,12 +893,12 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
                 
                 *rdma_head_ptr = new_head;
                 
-                // Increment chunk counter
-                total_chunks_received++;
+                    // Increment chunk counter
+                    this->total_chunks_received.fetch_add(1);
                 
                 // Print progress periodically
-                // if (total_chunks_received % 1000 == 0) {
-                //     std::cout << "[RECV_PROGRESS] Received " << total_chunks_received 
+                // if (this->total_chunks_received.load() % 1000 == 0) {
+                //     std::cout << "[RECV_PROGRESS] Received " << this->total_chunks_received.load()
                 //               << " / " << expected_total_chunks << " chunks" << std::endl;
                 // }
             }
@@ -919,8 +923,8 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
             std::atomic_thread_fence(std::memory_order_release);
             
             // Check if we've received all expected chunks
-            // if (total_chunks_received >= expected_total_chunks) {
-            //     std::cout << "[RECV_COMPLETE] Received all " << total_chunks_received 
+            // if (this->total_chunks_received.load() >= expected_total_chunks) {
+            //     std::cout << "[RECV_COMPLETE] Received all " << this->total_chunks_received.load()
             //               << " chunks. Flushing timestamps..." << std::endl;
             //     TimestampLogger::flush("recv_oob_fast_path_timestamp.dat");
             //     std::cout << "[RECV_COMPLETE] Timestamp flush complete." << std::endl;
@@ -933,7 +937,7 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
     }
     
     // Final report on shutdown
-    std::cout << "[RECV_SHUTDOWN] Total chunks received: " << total_chunks_received << std::endl;
+    std::cout << "[RECV_SHUTDOWN] Total chunks received: " << this->total_chunks_received.load() << std::endl;
 }
 
 // Subscriber Management Methods
@@ -975,6 +979,11 @@ inline void oob_recv_buffer<CascadeTypes...>::clear_subscriber() {
     dest_memory = nullptr;
     memory_size = 0;
     buffer_locked.store(false);
+}
+
+template<typename... CascadeTypes>
+inline void oob_recv_buffer<CascadeTypes...>::reset_counters() {
+    this->total_chunks_received.store(0);
 }
 
 } // namespace cascade

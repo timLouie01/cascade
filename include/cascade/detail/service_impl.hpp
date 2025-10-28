@@ -855,7 +855,7 @@ uint64_t ServiceClient<CascadeTypes...>::oob_rkey(void* addr){
 }
 
 template <typename... CascadeTypes> 
-std::unique_ptr<oob_send_buffer<CascadeTypes...>> ServiceClient<CascadeTypes...>::oob_send_buff_create(const node_id_t remote_node,const std::string& recv_udl, uint64_t bytes_alloc){
+std::unique_ptr<oob_send_buffer<CascadeTypes...>> ServiceClient<CascadeTypes...>::oob_send_buff_create(const node_id_t remote_node,const std::string& recv_udl, uint64_t bytes_alloc, uint64_t chunk_size){
     const size_t align = 64;
 
     void* buffer = aligned_alloc(align, bytes_alloc);
@@ -894,12 +894,12 @@ std::unique_ptr<oob_send_buffer<CascadeTypes...>> ServiceClient<CascadeTypes...>
     oob_register_mem_ex(head, sizeof(uint64_t),attr);
     oob_register_mem_ex(tail, sizeof(uint64_t),attr);
     
-    auto send_buff = oob_send_buffer<CascadeTypes...>::create(buffer, head, tail, remote_node, recv_udl, bytes_alloc, *this);
+    auto send_buff = oob_send_buffer<CascadeTypes...>::create(buffer, head, tail, remote_node, recv_udl, bytes_alloc, chunk_size, *this);
     return send_buff;
 }
 
 template <typename... CascadeTypes> 
-std::unique_ptr<oob_recv_buffer<CascadeTypes...>> ServiceClient<CascadeTypes...>::oob_recv_buff_create(const node_id_t remote_node,const std::string& send_udl, uint64_t bytes_alloc){
+std::unique_ptr<oob_recv_buffer<CascadeTypes...>> ServiceClient<CascadeTypes...>::oob_recv_buff_create(const node_id_t remote_node,const std::string& send_udl, uint64_t bytes_alloc, uint64_t chunk_size){
     const size_t align = 64; // CACHELINE alignment
     
     // Allocate separate memory for buffer, head, and tail
@@ -938,7 +938,7 @@ std::unique_ptr<oob_recv_buffer<CascadeTypes...>> ServiceClient<CascadeTypes...>
     oob_register_mem_ex(head, sizeof(uint64_t),attr);
     oob_register_mem_ex(tail, sizeof(uint64_t),attr);
     
-    auto recv_buff = oob_recv_buffer<CascadeTypes...>::create(buffer, head, tail, remote_node, send_udl, bytes_alloc, *this);
+    auto recv_buff = oob_recv_buffer<CascadeTypes...>::create(buffer, head, tail, remote_node, send_udl, bytes_alloc, chunk_size, *this);
     return recv_buff;
 }
 

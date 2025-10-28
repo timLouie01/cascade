@@ -101,6 +101,7 @@ public:
         if (tokens[1] == "prepare_send") {
             // Sender - prepare to send data
             const uint64_t ring_size = 64 * 1024; // 64KB ring buffer
+            const uint64_t chunk_size = 8 * 1024; // NEW: 8KB programmable chunk size (was 5KB)
             uint32_t dest_node = 1; // static destination node
             
             // Extract sleep time from payload
@@ -133,10 +134,10 @@ public:
                     
                     std::cout << "[PREPARE_SEND] Buffer creation thread pinned to core 10" << std::endl;
                     
-                    // Create the buffer (this does allocation, mlock, and page warming)
-                    send_buf = client.oob_send_buff_create(dest_node, MY_DESC, ring_size);
+                    // Create the buffer with programmable chunk size (this does allocation, mlock, and page warming)
+                    send_buf = client.oob_send_buff_create(dest_node, MY_DESC, ring_size, chunk_size);
                     
-                    std::cout << "[PREPARE_SEND] Send buffer allocated on NUMA node of core 10" << std::endl;
+                    std::cout << "[PREPARE_SEND] Send buffer allocated with " << chunk_size << " byte chunks on NUMA node of core 10" << std::endl;
                 });
                 
                 create_thread.join();
@@ -164,6 +165,7 @@ public:
         else if (tokens[1] == "prepare_recv") {
             // Receiver - prepare to receive data
             const uint64_t ring_size = 64 * 1024; // 64KB ring buffer
+            const uint64_t chunk_size = 8 * 1024; // NEW: 8KB programmable chunk size (was 5KB)
             uint32_t send_node = 0; // static sender node
             
             // Extract sleep time from payload
@@ -196,10 +198,10 @@ public:
                     
                     std::cout << "[PREPARE_RECV] Buffer creation thread pinned to core 11" << std::endl;
                     
-                    // Create the buffer (this does allocation, mlock, and page warming)
-                    recv_buf = client.oob_recv_buff_create(send_node, MY_DESC, ring_size);
+                    // Create the buffer with programmable chunk size (this does allocation, mlock, and page warming)
+                    recv_buf = client.oob_recv_buff_create(send_node, MY_DESC, ring_size, chunk_size);
                     
-                    std::cout << "[PREPARE_RECV] Recv buffer allocated on NUMA node of core 11" << std::endl;
+                    std::cout << "[PREPARE_RECV] Recv buffer allocated with " << chunk_size << " byte chunks on NUMA node of core 11" << std::endl;
                 });
                 
                 create_thread.join();
@@ -406,6 +408,54 @@ public:
                 std::cout << "[ERROR] Exception in receiver_ready: " << e.what() << std::endl;
             }
         }
+        else if (tokens[1] == "restart_send") {
+            // Restart sending with new sleep time (reuse existing buffers)
+            if (!send_buf) {
+                std::cout << "[ERROR] No send buffer available! Must call prepare_send first." << std::endl;
+                return;
+            }
+            
+            // Extract new sleep time from payload
+            uint32_t new_sleep_time_us = 0; // default no sleep
+            
+            if (value_ptr) {
+                const ObjectWithStringKey* object = dynamic_cast<const ObjectWithStringKey*>(value_ptr);
+                if (object && object->blob.size > 0) {
+                    // Parse as string: sleep time in microseconds
+                    std::string payload_str(reinterpret_cast<const char*>(object->blob.bytes), object->blob.size);
+                    new_sleep_time_us = std::stoul(payload_str);
+                }
+            }
+            
+            // Update sleep time for this run
+            this->sleep_time_us = new_sleep_time_us;
+            
+            std::cout << "[RESTART_SEND] Restarting send operation with sleep time " << new_sleep_time_us << "us" << std::endl;
+            
+            try {
+                // Start sending data directly (buffers already connected)
+                std::thread([this, &client]() {
+                    // Pin to core 12
+                    cpu_set_t set;
+                    CPU_ZERO(&set);
+                    CPU_SET(12, &set);
+                    pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
+                    
+                    // Set thread name for debugging
+                    pthread_setname_np(pthread_self(), "OOB_RESTART_SEND");
+                    
+                    std::cout << "[RESTART_SEND] Application sender thread pinned to core 12" << std::endl;
+
+                    // Small delay to ensure thread setup
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    
+                    this->start_sending_data(client);
+                }).detach();
+                
+            } catch (const std::exception& e) {
+                std::cout << "[ERROR] Exception in restart_send: " << e.what() << std::endl;
+            }
+        }
         else {
             std::cout << "[ERROR] Unsupported oob operation: " << tokens[1] << std::endl;
         }
@@ -439,10 +489,11 @@ private:
             //     std::cout << "[SEND_DEBUG] Message " << i << ": fill_chunks=" << fill_chunks << ", available=" << available << " bytes, sleep=" << sleep_time_us << "us" << std::endl;
             // }
             
-            // PACE Sender by waiting for there to be fewer than 2 full chunks
-            while (send_buf->get_fill_chunks() >= 1) {
-                _mm_pause();
-            }
+            // PACE Sender by waiting for there to be fewer than 2 full chunks (conditional)
+            // while (send_buf->get_fill_chunks() >= 1) {
+            //     _mm_pause();
+            // }
+            
             try {
                 // Wait for space first
                 while (!send_buf->can_fit(sizeof(TestData))) {
@@ -477,6 +528,9 @@ private:
         const int break_ms = 1000;  
         std::this_thread::sleep_for(std::chrono::milliseconds(break_ms));
         std::cout << "[SEND_THREAD] Flushed send timestamps to " << send_filename << std::endl;
+        
+        // RESET mechanism: Indicate that sender is ready for next run
+        std::cout << "[SEND_RESET] Send operation complete, ready for next run" << std::endl;
     }
     
     // Zero-copy lock mode: Direct access with lock/release
@@ -525,6 +579,14 @@ private:
                     std::string recv_filename = "recv_oob_fast_path_sleep" + std::to_string(sleep_time_us) + "us_timestamp.dat";
                     TimestampLogger::flush(recv_filename);
                     std::cout << "[RECV-ZERO-COPY] Flushed receive timestamps to " << recv_filename << std::endl;
+                    
+                    // RESET mechanism: Clear counters and resume timestamp logging for next run
+                    if (recv_buf) {
+                        recv_buf->reset_counters();
+                    }
+                    received_count.store(0);
+                    recv_timer_started = false;
+                    std::cout << "[RECV-RESET] Counters reset, ready for next run" << std::endl;
                 }
             } else {
                 std::cout << "[RECV-ZERO-COPY] Warning: Received data too small (" << size 

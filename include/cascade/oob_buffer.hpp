@@ -27,6 +27,7 @@ public:
           node_id_t      recv_node,
           std::string    recv_udl,
           std::uint64_t ring_size,
+          std::uint64_t chunk_size,
           ServiceClient<CascadeTypes...>& service_client);
 
   ~oob_send_buffer();
@@ -78,6 +79,7 @@ private:
   node_id_t recv_node{};
   std::string recv_udl{};
   std::uint64_t ring_size;
+  std::uint64_t chunk_size;  // NEW: Store chunk size
   std::uint64_t dest_buffer_addr;
   std::uint64_t dest_tail_addr;
   std::uint64_t dest_buff_r_key{}; 
@@ -95,6 +97,7 @@ private:
                   std::uint64_t buff_r_key, 
                   std::uint64_t tail_r_key,
                   std::uint64_t ring_size,
+                  std::uint64_t chunk_size,  // NEW: Chunk size parameter
                   ServiceClient<CascadeTypes...>& service_client);
     
   void run_send();
@@ -121,6 +124,7 @@ public:
            node_id_t      send_node,
            std::string    send_udl,
            std::uint64_t ring_size,
+           std::uint64_t chunk_size,  // NEW: Programmable chunk size
            ServiceClient<CascadeTypes...>& service_client);
 
     ~oob_recv_buffer();
@@ -149,6 +153,7 @@ private:
   node_id_t send_node{};
   std::string send_udl{};
   std::uint64_t ring_size;
+  std::uint64_t chunk_size;  // NEW: Store chunk size
   std::uint64_t head_addr;
   std::uint64_t head_r_key;
   ServiceClient<CascadeTypes...>& service_client;
@@ -171,6 +176,12 @@ private:
   MemoryCopyCallback memory_copy_callback;
   void* dest_memory{nullptr};
   size_t memory_size{0};
+ 
+  // Counters that can be reset between runs
+  std::atomic<uint64_t> total_chunks_received{0};
+
+  // Reset internal counters (call between runs)
+  void reset_counters();
   
   oob_recv_buffer(void* buff, 
                   void* head, 
@@ -178,6 +189,7 @@ private:
                   node_id_t send_node, 
                   std::string send_udl,
                   std::uint64_t ring_size,
+                  std::uint64_t chunk_size,  // NEW: Chunk size parameter
                   ServiceClient<CascadeTypes...>& service_client);
 
   void run_recv();

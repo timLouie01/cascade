@@ -905,7 +905,7 @@ namespace cascade {
         uint64_t head;
         uint64_t head_rkey;
     };
-    std::unique_ptr<oob_send_buffer<CascadeTypes...>> oob_send_buff_create(const node_id_t remote_node,const std::string& recv_udl, uint64_t bytes_alloc);
+    std::unique_ptr<oob_send_buffer<CascadeTypes...>> oob_send_buff_create(const node_id_t remote_node,const std::string& recv_udl, uint64_t bytes_alloc, uint64_t chunk_size = 5 * 1024);
 
     std::pair<Buffer,Tail> oob_recv_get_info(std::unique_ptr<oob_recv_buffer<CascadeTypes...>>& recv_buf);
 
@@ -919,7 +919,7 @@ namespace cascade {
 
     void oob_recv_start(std::unique_ptr<oob_recv_buffer<CascadeTypes...>>& recv_buf, int cpu_core = -1);
     
-    std::unique_ptr<oob_recv_buffer<CascadeTypes...>>  oob_recv_buff_create(const node_id_t remote_node,const std::string& send_udl, uint64_t bytes_alloc);
+    std::unique_ptr<oob_recv_buffer<CascadeTypes...>>  oob_recv_buff_create(const node_id_t remote_node,const std::string& send_udl, uint64_t bytes_alloc, uint64_t chunk_size = 5 * 1024);
 
     public:
         /**

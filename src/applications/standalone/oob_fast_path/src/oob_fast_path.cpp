@@ -505,16 +505,19 @@ private:
                 
                 data->sequence_number = i + 1;
                 
-                // Fill the entire message buffer by repeating the pattern using snprintf
-                size_t pos = 0;
-                while (pos < sizeof(data->message) - 1) {
-                    int written = snprintf(data->message + pos, sizeof(data->message) - pos, 
-                                         "| I am data element %d |", static_cast<int>(i + 1));
-                    if (written <= 0) break;
-                    pos += written;
-                    if (pos >= sizeof(data->message) - 1) break; // Prevent overflow
+                // Safely fill the entire message buffer with a simple repeating pattern
+                // Create a simple, consistent pattern that's easy to verify
+                const char pattern[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+                size_t pattern_len = sizeof(pattern) - 1; // Exclude null terminator
+                
+                // Fill buffer with repeating pattern
+                for (size_t pos = 0; pos < sizeof(data->message) - 1; ++pos) {
+                    data->message[pos] = pattern[pos % pattern_len];
                 }
-                data->message[sizeof(data->message) - 1] = '\0';
+                data->message[sizeof(data->message) - 1] = '\0'; // Null terminate
+                
+                // Write sequence number at the beginning for identification
+                snprintf(data->message, 32, "MSG_%lu:", static_cast<unsigned long>(i + 1));
                 
                 // Log send timestamp
                 TimestampLogger::log(LOG_OOBWRITE_SEND, client.get_my_id(), data->sequence_number);

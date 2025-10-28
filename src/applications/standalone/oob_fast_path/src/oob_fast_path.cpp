@@ -444,32 +444,25 @@ private:
                 _mm_pause();
             }
             try {
-                // Create test data
-                TestData data;
-                data.sequence_number = i + 1;
-                std::string msg = "| I am data element " + std::to_string(i + 1) + " |";
-                std::strncpy(data.message, msg.c_str(), sizeof(data.message) - 1);
-                data.message[sizeof(data.message) - 1] = '\0'; // Ensure null termination
+                // Wait for space first
+                while (!send_buf->can_fit(sizeof(TestData))) {
+                    _mm_pause();
+                }
+                
+                // Get pointer for in-place payload creation (ZERO-COPY!)
+                TestData* data = reinterpret_cast<TestData*>(send_buf->get_write_pointer());
+                
+                data->sequence_number = i + 1;
+                
+                // Build message directly in buffer without any temporary strings or copies
+                int msg_len = snprintf(data->message, sizeof(data->message), 
+                                     "| I am data element %d |", static_cast<int>(i + 1));
                 
                 // Log send timestamp
-                // TimestampLogger::log(LOG_OOBWRITE_SEND, client.get_my_id(), data.sequence_number);
+                TimestampLogger::log(LOG_OOBWRITE_SEND, client.get_my_id(), data->sequence_number);
                 
-                // Remove excessive debug output that might cause issues
-                // if (i % 5000 == 0) {
-                //     std::cout << "[SEND_THREAD] Progress: " << i << "/" << num_messages << std::endl;
-                // }
-                
-                // Double-check space availability just before writing
-                if (send_buf->can_fit(sizeof(TestData))) {
-                     TimestampLogger::log(LOG_OOBWRITE_SEND, client.get_my_id(), data.sequence_number);
-                    send_buf->write(reinterpret_cast<uint64_t>(&data), sizeof(TestData), false);
-                } 
-                // else {
-                    // std::cout << "[SEND_WARNING] Lost space between check and write for message " << i << std::endl;
-                    // Retry the iteration
-                    // --i;
-                    // continue;
-                // }
+                // Manually advance tail after in-place creation
+                send_buf->advance_tail_manual(sizeof(TestData));
                 
             } catch (const std::exception& e) {
                 std::cout << "[ERROR] Exception while sending data at message " << i << ": " << e.what() << std::endl;

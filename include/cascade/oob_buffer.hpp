@@ -56,6 +56,18 @@ public:
    */
   size_t get_fill_chunks();
 
+  /**
+   * Get pointer to current write location for in-place payload creation
+   * Use this to avoid memory copy - write directly to the buffer
+   */
+  void* get_write_pointer();
+
+  /**
+   * Manually advance the tail after writing data in-place
+   * Call this after writing data using get_write_pointer()
+   */
+  void advance_tail_manual(size_t bytes_written);
+
 private:
   void* buff {nullptr};
   std::atomic<void*> head{nullptr};  // Points to RDMA-registered memory for remote updates

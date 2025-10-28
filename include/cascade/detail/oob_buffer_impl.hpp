@@ -259,6 +259,18 @@ size_t oob_send_buffer<CascadeTypes...>::get_fill_chunks() {
 }
 
 template<typename... CascadeTypes>
+void* oob_send_buffer<CascadeTypes...>::get_write_pointer() {
+    // Return pointer to current write location for in-place data creation
+    return reinterpret_cast<void*>(get_write_location());
+}
+
+template<typename... CascadeTypes>
+void oob_send_buffer<CascadeTypes...>::advance_tail_manual(size_t bytes_written) {
+    // Same as advance_tail() but with a different name for clarity
+    advance_tail(bytes_written);
+}
+
+template<typename... CascadeTypes>
 inline void oob_send_buffer<CascadeTypes...>::write(uint64_t local_addr, size_t size, bool local_gpu) {
     void* src = reinterpret_cast<void*>(local_addr);
     

@@ -53,6 +53,9 @@ private:
     // Store client pointer for callbacks (avoid dangling references)
     ServiceClientType* client_ptr = nullptr;
     
+    // Configuration for sending data
+    uint32_t sleep_time_us = 0; // Sleep time between consecutive writes
+    
     // Data structure for sending meaningful data
     struct TestData {
         uint64_t sequence_number;
@@ -98,11 +101,25 @@ public:
         if (tokens[1] == "prepare_send") {
             // Sender - prepare to send data
             const uint64_t ring_size = 64 * 1024; // 64KB ring buffer
-            uint32_t dest_node = 1;
+            uint32_t dest_node = 1; // static destination node
             
+            // Extract sleep time from payload
+            uint32_t sleep_time_us = 0; // default no sleep
+            
+            if (value_ptr) {
+                const ObjectWithStringKey* object = dynamic_cast<const ObjectWithStringKey*>(value_ptr);
+                if (object && object->blob.size > 0) {
+                    // Parse as string: just the sleep time in microseconds
+                    std::string payload_str(reinterpret_cast<const char*>(object->blob.bytes), object->blob.size);
+                    sleep_time_us = std::stoul(payload_str);
+                }
+            }
             
             std::cout << "[PREPARE_SEND] Creating OOB send buffer for node " << dest_node 
-                      << " (creation pinned to core 10 for NUMA first-touch)" << std::endl;
+                      << " with sleep time " << sleep_time_us << "us (creation pinned to core 10 for NUMA first-touch)" << std::endl;
+            
+            // Store sleep time for later use in sending and logging
+            this->sleep_time_us = sleep_time_us;
             
             try {
                 // Create send buffer in thread pinned to core 10 (same as run_send)
@@ -131,13 +148,14 @@ public:
                 
                 std::cout << "[PREPARE_SEND] OOB send buffer created successfully" << std::endl;
                 
-                // Notify the destination node to prepare its receive buffer
+                // Notify the destination node to prepare its receive buffer with sleep time
                 uint32_t my_node_id = client.get_my_id();
-                Blob dest_blob(reinterpret_cast<const uint8_t*>(&my_node_id), sizeof(uint32_t));
+                std::string sleep_time_str = std::to_string(sleep_time_us);
+                Blob dest_blob(reinterpret_cast<const uint8_t*>(sleep_time_str.c_str()), sleep_time_str.length());
                 ObjectWithStringKey obj("oob_fp/prepare_recv", dest_blob);
                 client.put_and_forget<VolatileCascadeStoreWithStringKey>(obj, 0, dest_node);
                 
-                std::cout << "[PREPARE_SEND] Notified node " << dest_node << " to prepare receive buffer" << std::endl;
+                std::cout << "[PREPARE_SEND] Notified node " << dest_node << " to prepare receive buffer with sleep time " << sleep_time_us << "us" << std::endl;
                 
             } catch (const std::exception& e) {
                 std::cout << "[ERROR] Exception in prepare_send: " << e.what() << std::endl;
@@ -146,10 +164,25 @@ public:
         else if (tokens[1] == "prepare_recv") {
             // Receiver - prepare to receive data
             const uint64_t ring_size = 64 * 1024; // 64KB ring buffer
-            uint32_t send_node = 0;
+            uint32_t send_node = 0; // static sender node
+            
+            // Extract sleep time from payload
+            uint32_t sleep_time_us = 0; // default no sleep
+            
+            if (value_ptr) {
+                const ObjectWithStringKey* object = dynamic_cast<const ObjectWithStringKey*>(value_ptr);
+                if (object && object->blob.size > 0) {
+                    // Parse as string: sleep time in microseconds
+                    std::string payload_str(reinterpret_cast<const char*>(object->blob.bytes), object->blob.size);
+                    sleep_time_us = std::stoul(payload_str);
+                }
+            }
+            
+            // Store sleep time for later use in logging
+            this->sleep_time_us = sleep_time_us;
             
             std::cout << "[PREPARE_RECV] Creating OOB recv buffer for node " << send_node 
-                      << " (creation pinned to core 11 for NUMA first-touch)" << std::endl;
+                      << " with sleep time " << sleep_time_us << "us (creation pinned to core 11 for NUMA first-touch)" << std::endl;
             
             try {
                 // Create recv buffer in thread pinned to core 11 (same as run_recv)
@@ -389,20 +422,10 @@ private:
         // The can_fit() check will naturally pace the sender when buffer fills
         
         for (int i = 0; i < num_messages; ++i) {
-            // NO artificial delay - let hardware run at full speed!
-            // Yield to other threads every 50 messages
-            // if (i % 50 == 0) {
-            //     std::this_thread::yield();
-            //     // Also sleep briefly every 1000 messages for better cooperation
-            //     if (i % 1000 == 0) {
-                    // std::this_thread::sleep_for(std::chrono::microseconds(45));
-            //     }
-            // }
-            
-            // Brief pause before checking space
-            // for (int pause_cycles = 0; pause_cycles < 4; ++pause_cycles) {
-            //     _mm_pause();
-            // }
+            // Apply configured sleep time between consecutive writes if specified
+            if (sleep_time_us > 0) {
+                std::this_thread::sleep_for(std::chrono::microseconds(sleep_time_us));
+            }
             
             // Wait for space with tight spinning (for minimum latency)
              while (!send_buf->can_fit(sizeof(TestData))) {
@@ -410,9 +433,9 @@ private:
             }
             
             // PACE Sender by waiting for there to be fewer than 2 full chunks
-            while (send_buf->get_fill_chunks() >= 2) {
-                _mm_pause();
-            }
+            // while (send_buf->get_fill_chunks() >= 2) {
+            //     _mm_pause();
+            // }
             try {
                 // Create test data
                 TestData data;
@@ -448,10 +471,12 @@ private:
         }
         std::cout << "[SEND_THREAD] Completed sending " << num_messages << std::endl;
         
-        TimestampLogger::flush("send_oob_fast_path_timestamp.dat");
+        // Create filename with sleep time included
+        std::string send_filename = "send_oob_fast_path_sleep" + std::to_string(sleep_time_us) + "us_timestamp.dat";
+        TimestampLogger::flush(send_filename);
         const int break_ms = 1000;  
         std::this_thread::sleep_for(std::chrono::milliseconds(break_ms));
-        std::cout << "[SEND_THREAD] Flushed send timestamps" << std::endl;
+        std::cout << "[SEND_THREAD] Flushed send timestamps to " << send_filename << std::endl;
     }
     
     // Zero-copy lock mode: Direct access with lock/release
@@ -496,8 +521,10 @@ private:
                     // Small delay to ensure all log entries are queued
                     std::this_thread::sleep_for(std::chrono::milliseconds(50));
                     
-                    TimestampLogger::flush("recv_oob_fast_path_timestamp.dat");
-                    std::cout << "[RECV-ZERO-COPY] Flushed receive timestamps" << std::endl;
+                    // Create filename with sleep time included
+                    std::string recv_filename = "recv_oob_fast_path_sleep" + std::to_string(sleep_time_us) + "us_timestamp.dat";
+                    TimestampLogger::flush(recv_filename);
+                    std::cout << "[RECV-ZERO-COPY] Flushed receive timestamps to " << recv_filename << std::endl;
                 }
             } else {
                 std::cout << "[RECV-ZERO-COPY] Warning: Received data too small (" << size 

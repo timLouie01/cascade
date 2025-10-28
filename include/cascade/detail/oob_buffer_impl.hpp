@@ -120,7 +120,7 @@ inline void oob_send_buffer<CascadeTypes...>::advance_tail(size_t bytes_written)
     
     // PROPER WRAP-AROUND: Match the expected wrap-around logic
     uint64_t new_send_tail;
-    if (current_send_tail + bytes_written > ring_size) {
+    if (current_send_tail + bytes_written >= ring_size) {
         // If we would exceed the ring size, jump to the beginning
         new_send_tail = bytes_written;
     } else {

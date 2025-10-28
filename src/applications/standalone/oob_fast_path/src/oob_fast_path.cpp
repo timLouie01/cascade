@@ -440,7 +440,7 @@ private:
             // }
             
             // PACE Sender by waiting for there to be fewer than 2 full chunks
-            while (send_buf->get_fill_chunks() >= 2) {
+            while (send_buf->get_fill_chunks() >= 1) {
                 _mm_pause();
             }
             try {

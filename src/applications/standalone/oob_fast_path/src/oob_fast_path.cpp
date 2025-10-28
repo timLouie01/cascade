@@ -433,11 +433,11 @@ private:
             }
             
             // DEBUG: Check fill levels BEFORE pacing
-            if (i % 10 == 0) {
-                size_t fill_chunks = send_buf->get_fill_chunks();
-                size_t available = send_buf->get_available_space();
-                std::cout << "[SEND_DEBUG] Message " << i << ": fill_chunks=" << fill_chunks << ", available=" << available << " bytes, sleep=" << sleep_time_us << "us" << std::endl;
-            }
+            // if (i % 10 == 0) {
+            //     size_t fill_chunks = send_buf->get_fill_chunks();
+            //     size_t available = send_buf->get_available_space();
+            //     std::cout << "[SEND_DEBUG] Message " << i << ": fill_chunks=" << fill_chunks << ", available=" << available << " bytes, sleep=" << sleep_time_us << "us" << std::endl;
+            // }
             
             // PACE Sender by waiting for there to be fewer than 2 full chunks
             while (send_buf->get_fill_chunks() >= 2) {

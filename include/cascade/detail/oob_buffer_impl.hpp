@@ -856,12 +856,12 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
             }
             
             // LOOP 1: Log timestamps for all available chunks FIRST
-            for (uint64_t i = 0; i < chunks_available && this->total_chunks_received.load() + i < expected_total_chunks; ++i) {
+            for (uint64_t i = 0; i < chunks_available; ++i) {
                 TimestampLogger::log(LOG_OOBWRITE_RECV, this->service_client.get_my_id(), this->total_chunks_received.load() + i + 1);
             }
             
             // LOOP 2: Now process each chunk
-            for (uint64_t i = 0; i < chunks_available && this->total_chunks_received.load() < expected_total_chunks; ++i) {
+            for (uint64_t i = 0; i < chunks_available; ++i) {
                 uint64_t consume_size = chunk_size;
                 
                 // Deliver to subscriber if present

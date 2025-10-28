@@ -14,9 +14,6 @@ namespace cascade {
 template<typename... CascadeTypes>
 class ServiceClient;
 
-/*
-TODO: Fix the chunk size setting in the send and recv (currently set to 5Kib) enable easy toggling!
-*/
 template<typename... CascadeTypes>
 class oob_send_buffer {
 public:
@@ -138,6 +135,9 @@ public:
     void set_memory_copy_subscriber(void* dest_memory, size_t memory_size, const MemoryCopyCallback& callback);
     void clear_subscriber();
     
+    // Reset internal counters (call between runs)
+    void reset_counters();
+    
     // Public getters for ServiceClient access
     uint64_t get_buff() const { return reinterpret_cast<uint64_t>(buff); }
     uint64_t get_tail() const { return reinterpret_cast<uint64_t>(tail.load()); }
@@ -180,9 +180,6 @@ private:
   // Counters that can be reset between runs
   std::atomic<uint64_t> total_chunks_received{0};
 
-  // Reset internal counters (call between runs)
-  void reset_counters();
-  
   oob_recv_buffer(void* buff, 
                   void* head, 
                   void* tail, 

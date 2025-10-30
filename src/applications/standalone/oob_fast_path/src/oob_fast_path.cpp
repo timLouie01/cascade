@@ -491,7 +491,7 @@ private:
             // }
             
             // PACE Sender by waiting for there to be fewer than chunk_threshold full chunks (configurable)
-            std::cout << "[SEND_THREAD] Pacing with chunk threshold of: " << chunk_threshold << std::endl;
+            // std::cout << "[SEND_THREAD] Pacing with chunk threshold of: " << chunk_threshold << std::endl;
             while (send_buf->get_fill_chunks() >= chunk_threshold) {
                 _mm_pause();
             }

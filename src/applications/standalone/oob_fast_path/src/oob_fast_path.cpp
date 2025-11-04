@@ -478,9 +478,9 @@ private:
             }
             
             // Wait for space with tight spinning (for minimum latency)
-             while (!send_buf->can_fit(sizeof(TestData))) {
-                 _mm_pause();  // Just pause, no yields or sleeps
-            }
+            //  while (!send_buf->can_fit(sizeof(TestData))) {
+            //      _mm_pause();  // Just pause, no yields or sleeps
+            // }
             
             // DEBUG: Check fill levels BEFORE pacing
             // if (i % 10 == 0) {
@@ -490,9 +490,9 @@ private:
             // }
             
             // PACE Sender by waiting for there to be fewer than 2 full chunks (conditional)
-            while (send_buf->get_fill_chunks() >= 1) {
-                _mm_pause();
-            }
+            // while (send_buf->get_fill_chunks() >= 1) {
+            //     _mm_pause();
+            // }
             
             try {
                 // Wait for space first

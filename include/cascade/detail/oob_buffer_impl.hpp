@@ -851,8 +851,8 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
                 _mm_pause();
                 continue;
             }
-            std::cout << "[RECV_CHUNKS] head=" << *rdma_head_ptr 
-              << ", tail=" << *rdma_tail_ptr << ", chunks available=" << chunks_available << ", 16KB*chunks+head" << 16384*chunks_available+*rdma_head_ptr  << std::endl;
+            // std::cout << "[RECV_CHUNKS] head=" << *rdma_head_ptr 
+            //   << ", tail=" << *rdma_tail_ptr << ", chunks available=" << chunks_available << ", 16KB*chunks+head" << 16384*chunks_available+*rdma_head_ptr  << std::endl;
             
             // LOOP 1: Log timestamps for all available chunks using correct TestData sequence numbers
             uint64_t current_head_offset = *rdma_head_ptr;
@@ -870,7 +870,7 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
 
             uint64_t new_head =  *rdma_tail_ptr;
             *rdma_head_ptr  = new_head;
-
+            this->total_chunks_received.fetch_add(chunks_available);
 
             
             // LOOP 2: Now process each chunk
@@ -950,7 +950,11 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
     }
     
     // Final report on shutdown
-    std::cout << "[RECV_SHUTDOWN] Total chunks received: " << this->total_chunks_received.load() << std::endl;
+    std::cout << "[RECV_SHUTDOWN] Total chunks received: " << this->total_chunks_received.load() << 
+    std::string recv_filename = "recv_oob_fast_path_sleep" + std::to_string(sleep_time_us) + "us_timestamp.dat";
+                    TimestampLogger::flush(recv_filename);
+                    std::cout << "[RECV-ZERO-COPY] Flushed receive timestamps to " << recv_filename << std::endl;
+    std::endl;
 }
 
 // Subscriber Management Methods

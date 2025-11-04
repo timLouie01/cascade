@@ -851,54 +851,70 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
                 _mm_pause();
                 continue;
             }
+            std::cout << "[RECV_CHUNKS] head=" << *rdma_head_ptr 
+              << ", tail=" << *rdma_tail_ptr << ", chunks available=" << chunks_available << ", 16KB*chunks+head" << 16384*chunks_available+*rdma_head_ptr  << std::endl;
             
-            // LOOP 1: Log timestamps for all available chunks FIRST
+            // LOOP 1: Log timestamps for all available chunks using correct TestData sequence numbers
+            uint64_t current_head_offset = *rdma_head_ptr;
             for (uint64_t i = 0; i < chunks_available; ++i) {
-                TimestampLogger::log(LOG_OOBWRITE_RECV, this->service_client.get_my_id(), this->total_chunks_received.load() + i + 1);
+                // Calculate the correct chunk address, handling wrap-around
+                uint64_t chunk_offset = (current_head_offset + (i * chunk_size)) % ring_size;
+                const void* chunk_data = reinterpret_cast<const void*>(buffer_start + chunk_offset);
+                
+                // Read the actual sequence number from the TestData (first 8 bytes)
+                const uint64_t* sequence_ptr = reinterpret_cast<const uint64_t*>(chunk_data);
+                uint64_t actual_sequence = *sequence_ptr;
+                
+                TimestampLogger::log(LOG_OOBWRITE_RECV, this->service_client.get_my_id(), actual_sequence);
             }
+
+            uint64_t new_head =  *rdma_tail_ptr;
+            *rdma_head_ptr  = new_head;
+            
+
             
             // LOOP 2: Now process each chunk
-            for (uint64_t i = 0; i < chunks_available; ++i) {
-                uint64_t consume_size = chunk_size;
+            // for (uint64_t i = 0; i < chunks_available; ++i) {
+            //     uint64_t consume_size = chunk_size;
                 
-                // Deliver to subscriber if present
-                if (has_subscriber) {
-                    if (subscription_mode == SubscriptionMode::ZERO_COPY_LOCK) {
-                        if (zero_copy_callback) {
-                            zero_copy_callback(
-                                reinterpret_cast<const void*>(buffer_start + *rdma_head_ptr), 
-                                consume_size
-                            );
-                        }
-                    } else if (subscription_mode == SubscriptionMode::MEMORY_COPY) {
-                        if (memory_copy_callback && dest_memory && consume_size <= memory_size) {
-                            std::memcpy(dest_memory, 
-                                       reinterpret_cast<const void*>(buffer_start + *rdma_head_ptr), 
-                                       consume_size);
-                            memory_copy_callback(dest_memory, consume_size);
-                        }
-                    }
-                }
+            //     // Deliver to subscriber if present
+            //     if (has_subscriber) {
+            //         if (subscription_mode == SubscriptionMode::ZERO_COPY_LOCK) {
+            //             if (zero_copy_callback) {
+            //                 zero_copy_callback(
+            //                     reinterpret_cast<const void*>(buffer_start + *rdma_head_ptr), 
+            //                     consume_size
+            //                 );
+            //             }
+            //         } else if (subscription_mode == SubscriptionMode::MEMORY_COPY) {
+            //             if (memory_copy_callback && dest_memory && consume_size <= memory_size) {
+            //                 std::memcpy(dest_memory, 
+            //                            reinterpret_cast<const void*>(buffer_start + *rdma_head_ptr), 
+            //                            consume_size);
+            //                 memory_copy_callback(dest_memory, consume_size);
+            //             }
+            //         }
+            //     }
                 
-                // Advance head for this chunk
-                uint64_t new_head = *rdma_head_ptr + consume_size;
+            //     // Advance head for this chunk
+            //     uint64_t new_head = *rdma_head_ptr + consume_size;
                 
-                // Handle wrap-around if needed
-                if (new_head >= ring_size) {
-                    new_head = 0;
-                }
+            //     // Handle wrap-around if needed
+            //     if (new_head >= ring_size) {
+            //         new_head = consume_size;
+            //     }
                 
-                *rdma_head_ptr = new_head;
+            //     *rdma_head_ptr = new_head;
                 
-                    // Increment chunk counter
-                    this->total_chunks_received.fetch_add(1);
+            //         // Increment chunk counter
+            //         this->total_chunks_received.fetch_add(1);
                 
-                // Print progress periodically
-                // if (this->total_chunks_received.load() % 1000 == 0) {
-                //     std::cout << "[RECV_PROGRESS] Received " << this->total_chunks_received.load()
-                //               << " / " << expected_total_chunks << " chunks" << std::endl;
-                // }
-            }
+            //     // Print progress periodically
+            //     // if (this->total_chunks_received.load() % 1000 == 0) {
+            //     //     std::cout << "[RECV_PROGRESS] Received " << this->total_chunks_received.load()
+            //     //               << " / " << expected_total_chunks << " chunks" << std::endl;
+            //     // }
+            // }
             
             // Flush head cache line after all chunk updates
             _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));

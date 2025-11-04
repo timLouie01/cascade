@@ -493,13 +493,13 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
             
             // Update our local tail atomically with PROPER WRAP-AROUND
             volatile uint64_t new_tail;
-            // if (*rdma_tail_ptr + data_size > ring_size) {
-            //     // If we would exceed the ring size, jump to the beginning
-            //     new_tail = data_size;
-            // } else {
+            if (*rdma_tail_ptr + data_size >= ring_size) {
+                // If we would exceed the ring size, wrap to the beginning
+                new_tail = data_size;
+            } else {
                 // Normal case: just advance the tail
                 new_tail = *rdma_tail_ptr + data_size;
-            // }
+            }
             *rdma_tail_ptr = new_tail;
             
             // Flush tail cache line so app thread (core 12) sees the updated value
@@ -870,7 +870,7 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
 
             uint64_t new_head =  *rdma_tail_ptr;
             *rdma_head_ptr  = new_head;
-            
+
 
             
             // LOOP 2: Now process each chunk

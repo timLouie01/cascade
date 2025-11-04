@@ -951,7 +951,7 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
     
     // Final report on shutdown
     std::cout << "[RECV_SHUTDOWN] Total chunks received: " << this->total_chunks_received.load() << 
-    std::string recv_filename = "recv_oob_fast_path_sleep" + std::to_string(sleep_time_us) + "us_timestamp.dat";
+    std::string recv_filename = "recv_oob_fast_path_timestamp.dat";
                     TimestampLogger::flush(recv_filename);
                     std::cout << "[RECV-ZERO-COPY] Flushed receive timestamps to " << recv_filename << std::endl;
     std::endl;

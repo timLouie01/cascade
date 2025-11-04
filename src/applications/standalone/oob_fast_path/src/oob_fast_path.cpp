@@ -490,9 +490,9 @@ private:
             // }
             
             // PACE Sender by waiting for there to be fewer than 2 full chunks (conditional)
-            // while (send_buf->get_fill_chunks() >= 1) {
-            //     _mm_pause();
-            // }
+            while (send_buf->get_fill_chunks() >= 1) {
+                _mm_pause();
+            }
             
             try {
                 // Wait for space first

@@ -523,9 +523,6 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
             // Ensure RDMA tail update is ordered and visible
             std::atomic_thread_fence(std::memory_order_release);
             
-            // Yield briefly to allow Derecho threads to run
-            std::this_thread::yield();
-            
         } else {
             // Just pause when no data to send (for minimum latency)
             _mm_pause();

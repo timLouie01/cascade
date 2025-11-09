@@ -210,45 +210,15 @@ template<typename... CascadeTypes>
         size_t space = *rdma_head_ptr - *rdma_send_tail_ptr;
         return (space > 0) ? space - 1 : 0;
     }
-    // else {
-        // Wrap case: head is ahead of send_tail 
-        // Available space = head - send_tail - 1
-        // available_space = *rdma_head_ptr - *rdma_send_tail_ptr;
-        // size_t size = *rdma_head_ptr - *rdma_send_tail_ptr;
-        // return (space > 0) ? space - 1: 0;
-        // return *rdma_head_ptr - *rdma_send_tail_ptr;
-        // return (*rdma_head_ptr - *rdma_send_tail_ptr > 0)? *rdma_head_ptr - *rdma_send_tail_ptr -1: 0;
-        // if (available_space > 0) available_space -= 1;  // Reserve 1 byte to distinguish full from empty
-    // }
-    
-    // // Debug output occasionally
-    // static int space_debug_count = 0;
-    // if (++space_debug_count % 100 == 0) {
-        // std::cout << "[SPACE_DEBUG] head=" << *rdma_head_ptr << "tail" << *rdma_tail_ptr << ", send_tail=" << *rdma_send_tail_ptr 
-        //           << ", available=" << available_space << " (WRAP ENABLED)" << std::endl;
-    // }
-    
-    // return available_space;
 }
 
 template<typename... CascadeTypes>
 size_t oob_send_buffer<CascadeTypes...>::get_fill_chunks() {
     volatile uint64_t* rdma_head_ptr = reinterpret_cast<volatile uint64_t*>(head.load());
-    // volatile uint64_t* rdma_tail_ptr = reinterpret_cast<volatile uint64_t*>(tail.load());
     volatile uint64_t* rdma_send_tail_ptr = reinterpret_cast<volatile uint64_t*>(send_tail.load());
 
     _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
-    // _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
     _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_send_tail_ptr)));
-    // Use programmable chunk size instead of hardcoded 5KB
-    // if (*rdma_send_tail_ptr >= *rdma_head_ptr){
-    //     // Not Wrap
-    //     return (*rdma_send_tail_ptr - *rdma_head_ptr)/chunk_size;
-    // }else{
-    //     // Wrap
-    //     return (ring_size - *rdma_head_ptr)/chunk_size + (*rdma_send_tail_ptr)/chunk_size;;
-    // }
-    // uint64_t bytes_in_buff = (*rdma_tail_ptr >= *rdma_head_ptr) ? (*rdma_tail_ptr - *rdma_head_ptr) : (ring_size - *rdma_head_ptr + *rdma_tail_ptr);
   
      if (*rdma_send_tail_ptr >= *rdma_head_ptr){
         // Not Wrap
@@ -258,7 +228,6 @@ size_t oob_send_buffer<CascadeTypes...>::get_fill_chunks() {
         return (ring_size - *rdma_head_ptr)/chunk_size + (*rdma_send_tail_ptr)/chunk_size;
     }
 
-    // return bytes_in_buff / chunk_size;
 }
 
 template<typename... CascadeTypes>
@@ -313,7 +282,11 @@ template<typename... CascadeTypes>
 
     // std::cout << "[SPACE_DEBUG] head=" << *rdma_head_ptr << "tail" << *rdma_tail_ptr << ", send_tail=" << *rdma_send_tail_ptr 
     //               << ", available=" << get_available_space() << " (WRAP ENABLED)" << std::endl;
-    return get_available_space() >= size;
+    bool available = get_available_space() >= size;
+    if (available){
+        TimestampLogger::log(*rdma_head_ptr,*rdma_tail_ptr,*rdma_send_tail_ptr);
+    }
+    return available;
 }
 template<typename... CascadeTypes>
 inline void oob_send_buffer<CascadeTypes...>::start(int cpu_core) {
@@ -867,7 +840,7 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
                 // Read the actual sequence number from the TestData (first 8 bytes)
                 const uint64_t* sequence_ptr = reinterpret_cast<const uint64_t*>(chunk_data);
                 uint64_t actual_sequence = *sequence_ptr;
-                
+                TimestampLogger::log(0,*rdma_head_ptr, *rdma_tail_ptr);
                 TimestampLogger::log(LOG_OOBWRITE_RECV, this->service_client.get_my_id(), actual_sequence);
             }
 

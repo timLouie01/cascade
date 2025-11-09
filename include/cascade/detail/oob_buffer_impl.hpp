@@ -120,7 +120,7 @@ inline void oob_send_buffer<CascadeTypes...>::advance_tail(size_t bytes_written)
     
     // PROPER WRAP-AROUND: Match the expected wrap-around logic
     uint64_t new_send_tail;
-    if (current_send_tail + bytes_written >= ring_size) {
+    if (current_send_tail + bytes_written > ring_size) {
         // If we would exceed the ring size, jump to the beginning
         new_send_tail = bytes_written;
     } else {
@@ -466,7 +466,7 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
             
             // Update our local tail atomically with PROPER WRAP-AROUND
             volatile uint64_t new_tail;
-            if (*rdma_tail_ptr + data_size >= ring_size) {
+            if (*rdma_tail_ptr + data_size > ring_size) {
                 // If we would exceed the ring size, wrap to the beginning
                 new_tail = data_size;
             } else {
@@ -832,6 +832,7 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
             
             // LOOP 1: Log timestamps for all available chunks using correct TestData sequence numbers
             uint64_t current_head_offset = *rdma_head_ptr;
+            TimestampLogger::log(0,*rdma_head_ptr, *rdma_tail_ptr);
             for (uint64_t i = 0; i < chunks_available; ++i) {
                 // Calculate the correct chunk address, handling wrap-around
                 uint64_t chunk_offset = (current_head_offset + (i * chunk_size)) % ring_size;
@@ -840,7 +841,6 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
                 // Read the actual sequence number from the TestData (first 8 bytes)
                 const uint64_t* sequence_ptr = reinterpret_cast<const uint64_t*>(chunk_data);
                 uint64_t actual_sequence = *sequence_ptr;
-                TimestampLogger::log(0,*rdma_head_ptr, *rdma_tail_ptr);
                 TimestampLogger::log(LOG_OOBWRITE_RECV, this->service_client.get_my_id(), actual_sequence);
             }
 

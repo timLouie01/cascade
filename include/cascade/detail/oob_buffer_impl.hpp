@@ -826,11 +826,14 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
         if (*rdma_tail_ptr != *rdma_head_ptr) {
             uint64_t buffer_start = reinterpret_cast<uint64_t>(buff);
             uint64_t available_data;
+
+            uint64_t capture_tail = *rdma_tail_ptr;
+            // No need to caputure local head as we are single writer
             
             // Calculate available data with wrap-around logic
-            if (*rdma_tail_ptr >= *rdma_head_ptr) {
+            if (capture_tail >= *rdma_head_ptr) {
                 // Normal case: tail is ahead of or equal to head
-                available_data = *rdma_tail_ptr - *rdma_head_ptr;
+                available_data = capture_tail - *rdma_head_ptr;
             } else {
                 // Wrap case: tail has wrapped around, head hasn't
                 uint64_t space_to_end = ring_size - *rdma_head_ptr;
@@ -839,7 +842,7 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
                 } else {
                     // Jump to front
                     *rdma_head_ptr = 0;
-                    available_data = *rdma_tail_ptr - *rdma_head_ptr;
+                    available_data = capture_tail - *rdma_head_ptr;
                 }
             }
             
@@ -868,7 +871,7 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
                 TimestampLogger::log(LOG_OOBWRITE_RECV, this->service_client.get_my_id(), actual_sequence);
             }
 
-            uint64_t new_head =  *rdma_tail_ptr;
+            uint64_t new_head = capture_tail;
             *rdma_head_ptr  = new_head;
             this->total_chunks_received.fetch_add(chunks_available);
 

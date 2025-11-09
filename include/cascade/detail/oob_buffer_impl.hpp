@@ -162,11 +162,11 @@ template<typename... CascadeTypes>
     // uint64_t send_tail_offset = *reinterpret_cast<volatile uint64_t*>(send_tail_ptr);
     
     // Validate offsets are within ring bounds
-    if (*rdma_head_ptr >= ring_size || *rdma_send_tail_ptr >= ring_size) {
-        std::cout << "[SPACE_ERROR] Invalid offsets: head=" << *rdma_head_ptr 
-                  << ", send_tail=" << *rdma_send_tail_ptr << ", ring_size=" << ring_size << std::endl;
-        return 0;  // Conservative: no space available if offsets are corrupted
-    }
+    // if (*rdma_head_ptr >= ring_size || *rdma_send_tail_ptr >= ring_size) {
+    //     std::cout << "[SPACE_ERROR] Invalid offsets: head=" << *rdma_head_ptr 
+    //               << ", send_tail=" << *rdma_send_tail_ptr << ", ring_size=" << ring_size << std::endl;
+    //     return 0;  // Conservative: no space available if offsets are corrupted
+    // }
     // Use programmable chunk size instead of hardcoded 5KB
     // volatile size_t available_space;
     if (*rdma_send_tail_ptr > *rdma_head_ptr) {

@@ -284,7 +284,7 @@ template<typename... CascadeTypes>
     //               << ", available=" << get_available_space() << " (WRAP ENABLED)" << std::endl;
     bool available = get_available_space() >= size;
     if (available){
-        TimestampLogger::log(*rdma_head_ptr,*rdma_tail_ptr,*rdma_send_tail_ptr);
+        TimestampLogger::log(0,*rdma_head_ptr,*rdma_tail_ptr,*rdma_send_tail_ptr);
     }
     return available;
 }

@@ -181,7 +181,7 @@ template<typename... CascadeTypes>
             // Not enough space to end - check if we can wrap to beginning
             // We can wrap if head has moved far enough from start
             size_t space_at_beginning = *rdma_head_ptr;
-            if (space_at_beginning > chunk_size) {
+            if (space_at_beginning >= chunk_size) {
                 // Safe to wrap - return contiguous space at beginning (minus safety margin)
                 return (space_at_beginning > 0) ? space_at_beginning - 1 : 0;
             } else {
@@ -193,22 +193,23 @@ template<typename... CascadeTypes>
     else if (*rdma_send_tail_ptr == *rdma_head_ptr) {
         // Check tail to distinguish EMPTY vs FULL
         
-        if (*rdma_tail_ptr == *rdma_head_ptr) {
-            // All three equal → EMPTY buffer
-            // Reserve 1 byte to distinguish full from empty states
-            return ring_size - 1;
-        } else {
+        // if (*rdma_tail_ptr == *rdma_head_ptr) {
+        //     // All three equal → EMPTY buffer
+        //     // Reserve 1 byte to distinguish full from empty states
+        //     return ring_size - 1;
+        // } else {
             // send_tail == head but tail != head → FULL buffer
             // App has written all the way around and caught up to head
             // No space available (receiver needs to consume more)
             return 0;
-        }
+        // }
     }
     else {
         // Wrap case: head is ahead of send_tail
         // Reserve 1 byte to distinguish full from empty
         size_t space = *rdma_head_ptr - *rdma_send_tail_ptr;
-        return (space > 0) ? space - 1 : 0;
+        return space;
+        // return (space > 0) ? space - 1 : 0;
     }
 }
 

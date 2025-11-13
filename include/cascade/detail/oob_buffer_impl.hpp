@@ -156,19 +156,11 @@ template<typename... CascadeTypes>
     
     // Force memory barrier to get fresh RDMA-updated values
     std::atomic_thread_fence(std::memory_order_acquire);
-    
-    // Use volatile access for memory that may be updated by RDMA
-    // uint64_t head_offset = *reinterpret_cast<volatile uint64_t*>(head_ptr);
-    // uint64_t send_tail_offset = *reinterpret_cast<volatile uint64_t*>(send_tail_ptr);
-    
-    // Validate offsets are within ring bounds
-    // if (*rdma_head_ptr >= ring_size || *rdma_send_tail_ptr >= ring_size) {
-    //     std::cout << "[SPACE_ERROR] Invalid offsets: head=" << *rdma_head_ptr 
-    //               << ", send_tail=" << *rdma_send_tail_ptr << ", ring_size=" << ring_size << std::endl;
-    //     return 0;  // Conservative: no space available if offsets are corrupted
-    // }
-    // Use programmable chunk size instead of hardcoded 5KB
-    // volatile size_t available_space;
+
+    if (first_iter){
+        first_iter = false;
+        return ring_size;
+    }
     if (*rdma_send_tail_ptr > *rdma_head_ptr) {
         // Normal case: send_tail is ahead of head
         // Return CONTIGUOUS space only - either space to end OR space at beginning (if we can wrap)
@@ -191,18 +183,7 @@ template<typename... CascadeTypes>
         }
     } 
     else if (*rdma_send_tail_ptr == *rdma_head_ptr) {
-        // Check tail to distinguish EMPTY vs FULL
-        
-        // if (*rdma_tail_ptr == *rdma_head_ptr) {
-        //     // All three equal → EMPTY buffer
-        //     // Reserve 1 byte to distinguish full from empty states
-        //     return ring_size - 1;
-        // } else {
-            // send_tail == head but tail != head → FULL buffer
-            // App has written all the way around and caught up to head
-            // No space available (receiver needs to consume more)
-            return 0;
-        // }
+        return 0;
     }
     else {
         // Wrap case: head is ahead of send_tail

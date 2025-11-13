@@ -84,6 +84,7 @@ private:
   ServiceClient<CascadeTypes...>& service_client;
   std::thread sending_thread;
   std::atomic<bool> stop_flag{false};
+  std::bool first_iter{true};
   int cpu_core_id{-1};  // CPU core to pin sending thread to (-1 = no pinning)
   uint64_t cached_write_location{0};  // Cached write location for fast access
   oob_send_buffer(void* buff,

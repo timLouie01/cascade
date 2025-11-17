@@ -185,7 +185,7 @@ template<typename... CascadeTypes>
         }
     } 
     else if (*rdma_send_tail_ptr == *rdma_head_ptr) {
-        return 0;
+        return ring_size;
     }
     else {
         // Wrap case: head is ahead of send_tail

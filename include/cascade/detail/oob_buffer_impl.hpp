@@ -828,8 +828,7 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
                 uint64_t actual_sequence = *sequence_ptr;
                 TimestampLogger::log(LOG_OOBWRITE_RECV, this->service_client.get_my_id(), actual_sequence);
             }
-
-            uint64_t new_head = capture_tail;
+            uint64_t new_head = *rdma_head_ptr + chunk_size*chunks_available;
             *rdma_head_ptr  = new_head;
             this->total_chunks_received.fetch_add(chunks_available);
 

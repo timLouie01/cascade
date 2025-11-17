@@ -5,6 +5,26 @@
 #include <vector>
 #include <mutex>
 
+// Round counter bit-packing for distinguishing empty from full buffer
+#define ROUND_BITS 16  // Upper 16 bits for round counter
+#define OFFSET_BITS 48 // Lower 48 bits for buffer offset (supports up to 256TB buffers)
+#define ROUND_MASK ((1ULL << ROUND_BITS) - 1)
+#define OFFSET_MASK ((1ULL << OFFSET_BITS) - 1)
+#define ROUND_SHIFT OFFSET_BITS
+
+// Helper functions for round counter operations
+inline uint64_t pack_head_value(uint64_t offset, uint16_t round) {
+    return ((uint64_t)round << ROUND_SHIFT) | (offset & OFFSET_MASK);
+}
+
+inline uint64_t extract_offset(uint64_t head_value) {
+    return head_value & OFFSET_MASK;
+}
+
+inline uint16_t extract_round(uint64_t head_value) {
+    return (uint16_t)(head_value >> ROUND_SHIFT);
+}
+
 namespace derecho {
 
 using node_id_t = uint32_t;
@@ -72,6 +92,7 @@ private:
   std::atomic<uint64_t> head_offset_cache{0};  // Local cache of head value for fast CPU reads
   std::atomic<void*> tail{nullptr};
   std::atomic<void*> send_tail{nullptr};  // New: where app writes new data
+  std::atomic<uint16_t> send_tail_round{0};  // Round counter for send_tail wrap detection
   std::uint64_t send_head_r_key{};
   node_id_t recv_node{};
   std::string recv_udl{};

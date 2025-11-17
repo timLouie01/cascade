@@ -37,19 +37,21 @@ inline oob_send_buffer<CascadeTypes...>::oob_send_buffer(void* buff,
                                   chunk_size(chunk_size),
                                   service_client(service_client),
                                   send_head_r_key(service_client.oob_rkey(head)){
-    *reinterpret_cast<uint64_t*>(head) = 0;
-    *reinterpret_cast<uint64_t*>(tail) = 0;
+    // Initialize with round counter (round=0, offset=0)
+    *reinterpret_cast<uint64_t*>(head) = pack_head_value(0, 0);
+    *reinterpret_cast<uint64_t*>(tail) = pack_head_value(0, 0);
     
     // Allocate separate memory for send_tail (where app writes new data)
     const size_t align = 64;
     void* send_tail_mem = aligned_alloc(align, sizeof(uint64_t));
     if (!send_tail_mem) throw std::bad_alloc();
     
-    // Initialize send_tail memory to 0
-    *reinterpret_cast<uint64_t*>(send_tail_mem) = 0;
+    // Initialize send_tail memory with round counter (round=0, offset=0)
+    *reinterpret_cast<uint64_t*>(send_tail_mem) = pack_head_value(0, 0);
     
     // Store pointer to this separate memory location
     send_tail.store(send_tail_mem);
+    send_tail_round.store(0);
     
     std::cout << "[CONSTRUCTOR] Allocated separate send_tail memory at " << send_tail_mem << std::endl;
     std::cout << "[CONSTRUCTOR] head=" << head << ", tail=" << tail << ", send_tail=" << send_tail_mem << std::endl;
@@ -98,16 +100,15 @@ inline oob_send_buffer<CascadeTypes...>::~oob_send_buffer() {
 }
 template<typename... CascadeTypes>
 uint64_t oob_send_buffer<CascadeTypes...>::get_write_location() {
-    // Calculate current write location from send_tail instead of cached value
-    // Get volatile pointer once, like in run_send()
-    // Use programmable chunk size instead of hardcoded 5KB
+    // Calculate current write location from send_tail using round-aware offset extraction
     volatile uint64_t* send_tail_ptr = reinterpret_cast<volatile uint64_t*>(send_tail.load());
-    // uint64_t current_send_tail = *send_tail_ptr;
+    uint64_t send_tail_offset = extract_offset(*send_tail_ptr);
     uint64_t buffer_start = reinterpret_cast<uint64_t>(buff);
-    if (*send_tail_ptr + chunk_size > ring_size){
+    
+    if (send_tail_offset + chunk_size > ring_size){
         return buffer_start;
-    }else{
-        return buffer_start + *send_tail_ptr ;
+    } else {
+        return buffer_start + send_tail_offset;
     }
 }
 template<typename... CascadeTypes>
@@ -115,44 +116,48 @@ inline void oob_send_buffer<CascadeTypes...>::advance_tail(size_t bytes_written)
     // Get volatile pointer once, like in run_send()
     volatile uint64_t* send_tail_ptr = reinterpret_cast<volatile uint64_t*>(send_tail.load());
     
-    // Read current value through volatile pointer
-    uint64_t current_send_tail = *send_tail_ptr;
+    // Read current value and extract components
+    uint64_t current_send_tail_value = *send_tail_ptr;
+    uint64_t current_offset = extract_offset(current_send_tail_value);
+    uint16_t current_round = extract_round(current_send_tail_value);
     
-    // PROPER WRAP-AROUND: Match the expected wrap-around logic
-    uint64_t new_send_tail;
-    if (current_send_tail + bytes_written > ring_size) {
-        // If we would exceed the ring size, jump to the beginning
-        new_send_tail = bytes_written;
+    // Calculate new offset with wrap-around logic
+    uint64_t new_offset;
+    uint16_t new_round = current_round;
+    
+    if (current_offset + bytes_written > ring_size) {
+        // Wrap-around: jump to beginning and increment round counter
+        new_offset = bytes_written;
+        new_round = current_round + 1;
+        send_tail_round.store(new_round);  // Update atomic round counter
     } else {
-        // Normal case: just advance the tail
-        new_send_tail = current_send_tail + bytes_written;
+        // Normal case: just advance the offset
+        new_offset = current_offset + bytes_written;
     }
-    *send_tail_ptr = new_send_tail;
     
-    // Flush send_tail cache line so RDMA thread (core 10) sees the updated value
+    // Pack new value with round counter
+    uint64_t new_send_tail_value = pack_head_value(new_offset, new_round);
+    *send_tail_ptr = new_send_tail_value;
+    
+    // Flush send_tail cache line so RDMA thread sees the updated value
     _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(send_tail_ptr)));
     _mm_mfence();
     
-    // std::cout << "[ADVANCE_TAIL] Advanced send_tail from " << current_send_tail 
-    //           << " to " << new_send_tail << " (+" << bytes_written << " bytes) WRAP ENABLED" << std::endl;
-    // std::cout.flush();
+    // std::cout << "[ADVANCE_TAIL] Advanced send_tail from offset=" << current_offset << ",round=" << current_round
+    //           << " to offset=" << new_offset << ",round=" << new_round << " (+" << bytes_written << " bytes)" << std::endl;
 }
 
 template<typename... CascadeTypes>
  size_t oob_send_buffer<CascadeTypes...>::get_available_space() {
-    // void* head_ptr = head.load();
-    // void* send_tail_ptr = send_tail.load();
-
     volatile uint64_t* rdma_head_ptr = reinterpret_cast<volatile uint64_t*>(head.load());
     volatile uint64_t* rdma_tail_ptr = reinterpret_cast<volatile uint64_t*>(tail.load());
     volatile uint64_t* rdma_send_tail_ptr = reinterpret_cast<volatile uint64_t*>(send_tail.load());
     
     // CRITICAL: Flush cache lines before reading to ensure we see latest values
-    // head is updated by remote RDMA, send_tail is updated by our own advance_tail()
     _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
     _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
     _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_send_tail_ptr)));
-    _mm_mfence();  // Ensure flushes complete before reading
+    _mm_mfence();
     
     // Force memory barrier to get fresh RDMA-updated values
     std::atomic_thread_fence(std::memory_order_acquire);
@@ -161,36 +166,46 @@ template<typename... CascadeTypes>
         first_iter = false;
         return ring_size;
     }
-    if (*rdma_send_tail_ptr > *rdma_head_ptr) {
-        // Normal case: send_tail is ahead of head
-        // Return CONTIGUOUS space only - either space to end OR space at beginning (if we can wrap)
-        size_t space_to_end = ring_size - *rdma_send_tail_ptr;
+    
+    // Extract offsets and rounds from bit-packed values
+    uint64_t head_value = *rdma_head_ptr;
+    uint64_t send_tail_value = *rdma_send_tail_ptr;
+    
+    uint64_t head_offset = extract_offset(head_value);
+    uint64_t send_tail_offset = extract_offset(send_tail_value);
+    uint16_t head_round = extract_round(head_value);
+    uint16_t send_tail_round = extract_round(send_tail_value);
+    
+    // Use round counters to distinguish empty from full
+    if (head_offset == send_tail_offset) {
+        if (head_round == send_tail_round) {
+            // Same round and same offset = empty buffer
+            return ring_size;
+        } else {
+            // Different rounds but same offset = full buffer
+            return 0;
+        }
+    }
+    
+    if (send_tail_offset > head_offset) {
+        // Normal case: send_tail is ahead of head in same round
+        size_t space_to_end = ring_size - send_tail_offset;
         
-        if (space_to_end >= chunk_size) {
-            // Enough contiguous space before wrap - return it
+        if (space_to_end > chunk_size) {
             return space_to_end;
         } else {
-            // Not enough space to end - check if we can wrap to beginning
-            // We can wrap if head has moved far enough from start
-            size_t space_at_beginning = *rdma_head_ptr;
+            // Check if we can wrap to beginning
+            size_t space_at_beginning = head_offset;
             if (space_at_beginning >= chunk_size) {
-                // Safe to wrap - return contiguous space at beginning (minus safety margin)
                 return (space_at_beginning > 0) ? space_at_beginning - 1 : 0;
             } else {
-                // Can't wrap yet - no contiguous space available
                 return 0;
             }
         }
-    } 
-    else if (*rdma_send_tail_ptr == *rdma_head_ptr) {
-        return 0;
-    }
-    else {
-        // Wrap case: head is ahead of send_tail
-        // Reserve 1 byte to distinguish full from empty
-        size_t space = *rdma_head_ptr - *rdma_send_tail_ptr;
+    } else {
+        // Wrap case: head is ahead of send_tail (different rounds or wrapped)
+        size_t space = head_offset - send_tail_offset;
         return space;
-        // return (space > 0) ? space - 1 : 0;
     }
 }
 
@@ -201,15 +216,29 @@ size_t oob_send_buffer<CascadeTypes...>::get_fill_chunks() {
 
     _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
     _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_send_tail_ptr)));
-  
-     if (*rdma_send_tail_ptr >= *rdma_head_ptr){
-        // Not Wrap
-        return (*rdma_send_tail_ptr - *rdma_head_ptr)/chunk_size;
-    }else{
-        // Wrap
-        return (ring_size - *rdma_head_ptr)/chunk_size + (*rdma_send_tail_ptr)/chunk_size;
+    
+    // Extract offsets from bit-packed values
+    uint64_t head_offset = extract_offset(*rdma_head_ptr);
+    uint64_t send_tail_offset = extract_offset(*rdma_send_tail_ptr);
+    uint16_t head_round = extract_round(*rdma_head_ptr);
+    uint16_t send_tail_round = extract_round(*rdma_send_tail_ptr);
+    
+    // Calculate fill based on round counters
+    if (head_offset == send_tail_offset) {
+        if (head_round == send_tail_round) {
+            return 0;  // Empty
+        } else {
+            return ring_size / chunk_size;  // Full
+        }
     }
-
+    
+    if (send_tail_offset >= head_offset) {
+        // Not wrapped or same round
+        return (send_tail_offset - head_offset) / chunk_size;
+    } else {
+        // Wrapped
+        return (ring_size - head_offset) / chunk_size + (send_tail_offset) / chunk_size;
+    }
 }
 
 template<typename... CascadeTypes>
@@ -256,17 +285,23 @@ template<typename... CascadeTypes>
     volatile uint64_t* rdma_send_tail_ptr = reinterpret_cast<volatile uint64_t*>(send_tail.load());
     
     // CRITICAL: Flush cache lines before reading to ensure we see latest values
-    // head is updated by remote RDMA, send_tail is updated by our own advance_tail()
     _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
     _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
     _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_send_tail_ptr)));
-    _mm_mfence();  // Ensure flushes complete before reading
+    _mm_mfence();
 
-    // std::cout << "[SPACE_DEBUG] head=" << *rdma_head_ptr << "tail" << *rdma_tail_ptr << ", send_tail=" << *rdma_send_tail_ptr 
-    //               << ", available=" << get_available_space() << " (WRAP ENABLED)" << std::endl;
+    // Extract components for debugging
+    uint64_t head_offset = extract_offset(*rdma_head_ptr);
+    uint64_t send_tail_offset = extract_offset(*rdma_send_tail_ptr);
+    uint16_t head_round = extract_round(*rdma_head_ptr);
+    uint16_t send_tail_round = extract_round(*rdma_send_tail_ptr);
+    
+    // std::cout << "[SPACE_DEBUG] head_offset=" << head_offset << ",head_round=" << head_round
+    //           << ", send_tail_offset=" << send_tail_offset << ",send_tail_round=" << send_tail_round
+    //           << ", available=" << get_available_space() << std::endl;
     bool available = get_available_space() >= size;
     if (available){
-        TimestampLogger::log(0,*rdma_head_ptr,*rdma_tail_ptr,*rdma_send_tail_ptr);
+        TimestampLogger::log(0, head_offset, extract_offset(*rdma_tail_ptr), send_tail_offset);
     }
     return available;
 }
@@ -333,80 +368,64 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
             // std::cout.flush();
         // }
         
+        // Extract round-aware offsets for comparison
+        uint64_t tail_value = *rdma_tail_ptr;
+        uint64_t send_tail_value = *rdma_send_tail_ptr;
+        uint64_t tail_offset = extract_offset(tail_value);
+        uint64_t send_tail_offset = extract_offset(send_tail_value);
+        uint16_t tail_round = extract_round(tail_value);
+        uint16_t send_tail_round = extract_round(send_tail_value);
+        
         // Send data from tail to send_tail (data written but not yet sent)
-        if (*rdma_send_tail_ptr != *rdma_tail_ptr) {
-            // std::cout << "[RDMA_SEND] *** DATA TO SEND *** tail=" << *rdma_tail_ptr 
-            //           << ", send_tail=" << *rdma_send_tail_ptr << " (WRAP ENABLED)" << std::endl;
-            // std::cout.flush();
-            
-            // Validate pointers before use
-            // if (!rdma_head_ptr || !rdma_tail_ptr || !rdma_send_tail_ptr || !buff) {
-            //     std::cout << "[RDMA_ERROR] NULL pointer detected: head_ptr=" << rdma_head_ptr 
-            //               << ", tail_ptr=" << rdma_tail_ptr << ", send_tail_ptr=" << rdma_send_tail_ptr 
-            //               << ", buff=" << buff << std::endl;
-            //     std::this_thread::yield();
-            //     continue;
-            // }
-            
-            // Validate offsets are within bounds
-            // if (*rdma_tail_ptr >= ring_size || *rdma_send_tail_ptr >= ring_size) {
-            //     std::cout << "[RDMA_ERROR] Offset out of bounds: tail=" << *rdma_tail_ptr 
-            //               << ", send_tail=" << *rdma_send_tail_ptr << ", ring_size=" << ring_size << std::endl;
-            //     std::this_thread::yield();
-            //     continue;
-            // }
+        // Compare using round-aware logic: data is available if offsets differ or rounds differ
+        bool has_data = (tail_offset != send_tail_offset) || (tail_round != send_tail_round);
+        
+        if (has_data) {
+            // std::cout << "[RDMA_SEND] *** DATA TO SEND *** tail_offset=" << tail_offset << ",tail_round=" << tail_round
+            //           << ", send_tail_offset=" << send_tail_offset << ",send_tail_round=" << send_tail_round << std::endl;
             
             uint64_t buffer_start = reinterpret_cast<uint64_t>(buff);
-            const uint64_t chunk_size = this->chunk_size; // programmable chunk size
+            const uint64_t chunk_size = this->chunk_size;
             uint64_t available_data;
             uint64_t data_size;
-            // uint64_t send_from_offset = *rdma_tail_ptr;  // Where to read data from our buffer
             
-            // Simple wrap-around logic: if we can't fit 5KiB, try from the front
-            if (*rdma_send_tail_ptr >= *rdma_tail_ptr) {
-                // Normal case: send_tail is ahead of tail
-                available_data = *rdma_send_tail_ptr - *rdma_tail_ptr;
+            // Calculate available data using round-aware logic
+            if (send_tail_offset >= tail_offset && send_tail_round == tail_round) {
+                // Normal case: send_tail is ahead of tail in same round
+                available_data = send_tail_offset - tail_offset;
                 if (available_data >= chunk_size) {
-                    // We can send a full 5KiB chunk
                     data_size = chunk_size;
-                }else {
-                    // No data to send
+                } else {
+                    // Not enough data to send
                     std::this_thread::yield();
                     continue;
                 }
             } else {
-                // Wrap case: send_tail has wrapped around, tail hasn't
-                // Check if we have 5KiB from tail to end of buffer
-                uint64_t space_to_end = ring_size - *rdma_tail_ptr;
+                // Wrap case or different rounds: send_tail has wrapped around or is in different round
+                uint64_t space_to_end = ring_size - tail_offset;
                 if (space_to_end >= chunk_size) {
-                    // We can fit 5KiB before wrap
+                    // We can fit chunk_size before wrap
                     data_size = chunk_size;
                 } else {
-                    // Not enough space to end for 5KB, need to wrap around
-                    // But we can only wrap if there's space at the front (head > 0)
-                    // if (*rdma_head_ptr > chunk_size) {
-                    if (*rdma_head_ptr > chunk_size && *rdma_send_tail_ptr < *rdma_tail_ptr) {   
-                        // Safe to jump to front
-                        // send_from_offset = 0;
-                        data_size = chunk_size;
+                    // Not enough space to end, need to wrap around
+                    uint64_t head_offset = extract_offset(*rdma_head_ptr);
+                    if (head_offset > chunk_size && send_tail_offset < tail_offset) {   
+                        // Safe to jump to front - update tail with incremented round
+                        uint16_t new_tail_round = tail_round + 1;
+                        uint64_t new_tail_value = pack_head_value(0, new_tail_round);
+                        *rdma_tail_ptr = new_tail_value;
+                        tail_offset = 0;
                         
-                        // Update tail to jump to front
-                        *rdma_tail_ptr = 0;
-                        // *rdma_send_tail_ptr = 0;
-                        // std::cout << "[RDMA_SEND] Jumped tail to front" << std::endl;
-                        
-                        available_data = *rdma_send_tail_ptr - *rdma_tail_ptr;
+                        // Recalculate available data after wrap
+                        available_data = send_tail_offset - tail_offset;
                         if (available_data >= chunk_size) {
-                            // We can send a full 5KiB chunk
                             data_size = chunk_size;
-                        }else {
-                            // No data to send
+                        } else {
                             std::this_thread::yield();
                             continue;
                         }
                     } else {
                         // Can't wrap yet, head is too close to front
-                        // std::cout << "[RDMA_SEND] Cannot wrap, head too close to front (" << *rdma_head_ptr << ")" << std::endl;
                         std::this_thread::yield();
                         continue;
                     }
@@ -414,31 +433,18 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
             }
             
             // Additional bounds checks for the RDMA operations
-            if ( *rdma_tail_ptr + data_size > ring_size) {
-                // std::cout << "[RDMA_ERROR] Local read would exceed buffer: offset=" << send_from_offset 
-                //           << ", size=" << data_size << ", ring_size=" << ring_size << std::endl;
-                // std::this_thread::yield();
+            if (tail_offset + data_size > ring_size) {
                 continue;
             }
-            
-            if (*rdma_tail_ptr + data_size > ring_size) {
-                // std::cout << "[RDMA_ERROR] Remote write would exceed buffer: offset=" << *rdma_tail_ptr 
-                //           << ", size=" << data_size << ", ring_size=" << ring_size << std::endl;
-                // std::this_thread::yield();
-                continue;
-            }
-            
-            // std::cout << "[RDMA_SEND] Sending " << data_size << " bytes from local offset " 
-            //           << send_from_offset << " to remote offset " << *rdma_tail_ptr  << " (WRAP ENABLED)" << std::endl;
             
             // Write data to remote buffer at their current tail position
             this->service_client.template oob_memwrite<typename std::tuple_element<0, std::tuple<CascadeTypes...>>::type>(
-                this->dest_buffer_addr + *rdma_tail_ptr,  // Write at remote tail
+                this->dest_buffer_addr + tail_offset,  // Write at remote tail offset
                 this->recv_node,
                 this->dest_buff_r_key,
                 data_size,
                 false,
-                buffer_start +  *rdma_tail_ptr,  // Read from our calculated source offset
+                buffer_start + tail_offset,  // Read from our calculated source offset
                 false,
                 false
             );
@@ -446,16 +452,24 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
             // Ensure data write completes before updating tail
             std::atomic_thread_fence(std::memory_order_release);
             
-            // Update our local tail atomically with PROPER WRAP-AROUND
-            volatile uint64_t new_tail;
-            if (*rdma_tail_ptr + data_size > ring_size) {
-                // If we would exceed the ring size, wrap to the beginning
-                new_tail = data_size;
+            // Update our local tail atomically with round-aware wrap-around
+            uint64_t current_tail_value = *rdma_tail_ptr;
+            uint64_t current_tail_offset = extract_offset(current_tail_value);
+            uint16_t current_tail_round = extract_round(current_tail_value);
+            uint64_t new_tail_offset;
+            uint16_t new_tail_round = current_tail_round;
+            
+            if (current_tail_offset + data_size > ring_size) {
+                // If we would exceed the ring size, wrap to the beginning and increment round
+                new_tail_offset = data_size;
+                new_tail_round = current_tail_round + 1;
             } else {
-                // Normal case: just advance the tail
-                new_tail = *rdma_tail_ptr + data_size;
+                // Normal case: just advance the offset
+                new_tail_offset = current_tail_offset + data_size;
             }
-            *rdma_tail_ptr = new_tail;
+            
+            uint64_t new_tail_value = pack_head_value(new_tail_offset, new_tail_round);
+            *rdma_tail_ptr = new_tail_value;
             
             // Flush tail cache line so app thread (core 12) sees the updated value
             _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
@@ -508,8 +522,9 @@ inline oob_recv_buffer<CascadeTypes...>::oob_recv_buffer(void* buff,
                                   r_key_tail_copy(service_client.oob_rkey(tail)),
                                   subscription_mode(SubscriptionMode::ZERO_COPY_LOCK)
                                   {
-    *reinterpret_cast<uint64_t*>(head) = 0;
-    *reinterpret_cast<uint64_t*>(tail) = 0;
+    // Initialize with round counter (round=0, offset=0)
+    *reinterpret_cast<uint64_t*>(head) = pack_head_value(0, 0);
+    *reinterpret_cast<uint64_t*>(tail) = pack_head_value(0, 0);
 }
 template<typename... CascadeTypes>
 inline std::unique_ptr<oob_recv_buffer<CascadeTypes...>>
@@ -826,8 +841,25 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
                 TimestampLogger::log(LOG_OOBWRITE_RECV, this->service_client.get_my_id(), actual_sequence);
             }
 
-            uint64_t new_head = capture_tail;
-            *rdma_head_ptr  = new_head;
+            // Calculate new head with round counter handling
+            uint64_t old_head_value = *rdma_head_ptr;
+            uint64_t old_head_offset = extract_offset(old_head_value);
+            uint16_t old_head_round = extract_round(old_head_value);
+            
+            uint64_t new_head_offset = extract_offset(capture_tail);
+            uint16_t tail_round = extract_round(capture_tail);
+            uint16_t new_head_round = old_head_round;
+            
+            // If head wraps around during this batch, increment its round
+            if (new_head_offset < old_head_offset) {
+                new_head_round = old_head_round + 1;
+            } else if (tail_round > old_head_round) {
+                // Tail has wrapped, head should follow
+                new_head_round = tail_round;
+            }
+            
+            uint64_t new_head_value = pack_head_value(new_head_offset, new_head_round);
+            *rdma_head_ptr = new_head_value;
             this->total_chunks_received.fetch_add(chunks_available);
 
             

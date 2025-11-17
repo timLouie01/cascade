@@ -474,7 +474,12 @@ private:
         for (int i = 0; i < num_messages; ++i) {
             // Apply configured sleep time between consecutive writes if specified
             if (sleep_time_us > 0) {
-                std::this_thread::sleep_for(std::chrono::microseconds(sleep_time_us));
+                // Busy wait instead of yielding CPU
+                auto busy_start = std::chrono::high_resolution_clock::now();
+                auto target_duration = std::chrono::microseconds(sleep_time_us);
+                while (std::chrono::high_resolution_clock::now() - busy_start < target_duration) {
+                    _mm_pause(); // CPU hint for spin-wait loops
+                }
             }
             
             // Wait for space with tight spinning (for minimum latency)

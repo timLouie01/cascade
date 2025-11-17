@@ -173,9 +173,11 @@ template<typename... CascadeTypes>
             // Not enough space to end - check if we can wrap to beginning
             // We can wrap if head has moved far enough from start
             size_t space_at_beginning = *rdma_head_ptr;
-            if (space_at_beginning >= chunk_size) {
+            // CRITICAL CHANGE: > not >=
+            if (space_at_beginning > chunk_size) {
                 // Safe to wrap - return contiguous space at beginning (minus safety margin)
-                return (space_at_beginning > 0) ? space_at_beginning - 1 : 0;
+                // CRITICAL CHANGE: return space_at_beginning - 1 to prevent send tail from == head
+                return space_at_beginning-1;
             } else {
                 // Can't wrap yet - no contiguous space available
                 return 0;
@@ -189,8 +191,9 @@ template<typename... CascadeTypes>
         // Wrap case: head is ahead of send_tail
         // Reserve 1 byte to distinguish full from empty
         size_t space = *rdma_head_ptr - *rdma_send_tail_ptr;
-        return space;
-        // return (space > 0) ? space - 1 : 0;
+        // return space;
+        // CRITICAL CHANGE: subtract one to prevent user from shifting the send tail into the head
+        return (space > 0) ? space - 1 : 0;
     }
 }
 

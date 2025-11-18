@@ -573,12 +573,13 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
         CPU_SET(cpu_core_id, &cpuset);
         int rc = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
         if (rc != 0) {
-            dbg_default_warn("Failed to set CPU affinity for receiving thread to core {}: {}", cpu_core_id, strerror(rc));
+              // Log warning but continue - this is not critical for functionality
+            std::cerr << "[SENDER_THREAD] Failed to set CPU affinity to core " << cpu_core_id << ": " << strerror(rc) << std::endl;
         } else {
-            dbg_default_info("Receiving thread pinned to core {}", cpu_core_id);
+             std::cout << "[SENDER_THREAD] Pinned to core " << cpu_core_id << std::endl;
         }
     } else {
-        dbg_default_info("Receiving thread started without CPU pinning");
+         std::cout << "[SENDER_THREAD] Started without CPU pinning" << std::endl;
     }
 
     // Get volatile pointers ONCE before the loop
@@ -595,7 +596,7 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
     while (stop_flag.load(std::memory_order_acquire) == 0) {
         // Flush tail cache line to see latest RDMA-updated value from sender
         _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
-        // _mm_mfence();
+        _mm_mfence();
         
         if (*rdma_tail_ptr != *rdma_head_ptr) {
             uint64_t buffer_start = reinterpret_cast<uint64_t>(buff);

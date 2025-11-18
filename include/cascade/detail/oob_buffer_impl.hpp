@@ -522,7 +522,7 @@ oob_recv_buffer<CascadeTypes...>::create(void* buff,
                         node_id_t     send_node,
                         std::string   send_udl,
                         std::uint64_t ring_size,
-                        std::uint64_t chunk_size,  // NEW: Accept chunk size
+                        std::uint64_t chunk_size,
                         ServiceClient<CascadeTypes...>& service_client) {
     auto p = std::unique_ptr<oob_recv_buffer<CascadeTypes...>>(
         new oob_recv_buffer<CascadeTypes...>(buff, head, tail, send_node, std::move(send_udl), ring_size, chunk_size, service_client)  // NEW: Pass chunk size
@@ -556,195 +556,8 @@ inline void oob_recv_buffer<CascadeTypes...>::stop() {
     stop_flag.store(1, std::memory_order_release);    
     if (receiving_thread.joinable()) receiving_thread.join();
 }
-
 // ============================================================================
-// OLD VERSION: Original run_recv implementation (single chunk processing)
-// ============================================================================
-/*
-template<typename... CascadeTypes>
-inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
-    using namespace std::chrono_literals;
-
-    // Pin this receiving thread to specified core if requested
-    if (cpu_core_id >= 0) {
-        cpu_set_t cpuset;
-        CPU_ZERO(&cpuset);
-        CPU_SET(cpu_core_id, &cpuset);
-        int rc = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
-        if (rc != 0) {
-            // Log warning but continue - this is not critical for functionality
-            dbg_default_warn("Failed to set CPU affinity for receiving thread to core {}: {}", cpu_core_id, strerror(rc));
-        } else {
-            dbg_default_info("Receiving thread pinned to core {}", cpu_core_id);
-        }
-    } else {
-        dbg_default_info("Receiving thread started without CPU pinning");
-    }
-
-    // CRITICAL FIX: Get volatile pointers ONCE before the loop
-    volatile uint64_t* rdma_head_ptr = reinterpret_cast<volatile uint64_t*>(head.load());
-    volatile uint64_t* rdma_tail_ptr = reinterpret_cast<volatile uint64_t*>(tail.load());
-
-    std::cout << "[RECV_DEBUG] Starting receive loop, initial head=" << *rdma_head_ptr 
-              << ", tail=" << *rdma_tail_ptr << std::endl;
-
-    // Chunk tracking for timestamp logging (use member so it can be reset)
-    const uint64_t chunk_size = this->chunk_size; // programmable chunk size
-    const uint64_t expected_total_chunks = 10000;
-
-    while (stop_flag.load(std::memory_order_acquire) == 0) {
-        // CRITICAL: Flush tail cache line to see latest RDMA-updated value from sender
-        _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
-        _mm_mfence();
-        
-        // Read the RDMA-updated values directly through volatile pointers
-        // volatile uint64_t head_offset = *rdma_head_ptr;
-        // volatile uint64_t tail_offset = *rdma_tail_ptr;
-        
-        // Debug output for receiver
-        // static int recv_debug_count = 0;
-        // if (++recv_debug_count % 100 == 0) {  // Print every 100 iterations
-            // std::cout << "[RECV_DEBUG] head=" << *rdma_head_ptr << ", tail=" << *rdma_tail_ptr << std::endl;
-        // }
-        
-        if (*rdma_tail_ptr != *rdma_head_ptr) {
-            // std::cout << "[RECV_DATA] Processing data: head=" << *rdma_head_ptr << ", tail=" << *rdma_tail_ptr << " (WRAP ENABLED)" << std::endl;
-            uint64_t buffer_start = reinterpret_cast<uint64_t>(buff);
-            
-            const uint64_t chunk_size = this->chunk_size; // programmable chunk size
-            uint64_t available_data;
-            uint64_t consume_size;
-            
-            // Simple wrap-around logic: if we can't fit 5KiB, try from the front
-            if (*rdma_tail_ptr >= *rdma_head_ptr) {
-                // Normal case: tail is ahead of or equal to head
-                available_data = *rdma_tail_ptr - *rdma_head_ptr;
-                if (available_data >= chunk_size) {
-                    // We can consume a full 5KiB chunk
-                    consume_size = chunk_size;
-                } else {
-                    // No data to consume - just pause and retry (for minimum latency)
-                    _mm_pause();
-                    continue;
-                }
-            } else {
-                // Wrap case: tail has wrapped around, head hasn't
-                // Check if we have 5KiB from head to end of buffer
-                uint64_t space_to_end = ring_size - *rdma_head_ptr;
-                if (space_to_end >= chunk_size) {
-                    // We can fit 5KiB before wrap
-                    consume_size = chunk_size;
-                } else {
-                    // No space, jump to front
-                    *rdma_head_ptr = 0;
-                    
-                    available_data = *rdma_tail_ptr - *rdma_head_ptr;
-                    if (available_data >= chunk_size) {
-                    // We can consume a full 5KiB chunk
-                        consume_size = chunk_size;
-                    } else {
-                        // No data to consume - just pause and retry (for minimum latency)
-                        _mm_pause();
-                        continue;
-                    }
-                    
-                    // std::cout << "[RECV_DATA] Jumped head to front, now consuming from offset 0" << std::endl;
-                }
-            }
-            
-            uint64_t chunks_available = available_data / chunk_size;
-
-            if (has_subscriber) {
-                if (subscription_mode == SubscriptionMode::ZERO_COPY_LOCK) {
-                    // Zero-copy mode: provide direct access with lock/release mechanism
-                    // if (zero_copy_callback && !buffer_locked.load()) {
-                    if (zero_copy_callback){
-                        //  std::cout << "[ZERO_COPY_RECV] ZERO COPY PROCESS ACQUIRE LOCK" << std::endl;
-                        // buffer_locked.store(true);
-                        
-                        // auto release_func = [this]() {
-                            // buffer_locked.store(false);
-                        // };
-                        
-                        zero_copy_callback(
-                            reinterpret_cast<const void*>(buffer_start + *rdma_head_ptr), 
-                            consume_size
-                            // ,
-                            // release_func
-                        );
-                        
-                        // Busy wait for release - no context switching
-                        // while (buffer_locked.load()) {
-                        //     _mm_pause();
-                        // }
-                        // std::cout << "[ZERO_COPY_RECV] ZERO COPY PROCESS UNLOCK" << std::endl;
-                    }
-                } else if (subscription_mode == SubscriptionMode::MEMORY_COPY) {
-                    // Memory copy mode: copy to registered memory
-                    if (memory_copy_callback && dest_memory && consume_size <= memory_size) {
-                        std::memcpy(dest_memory, 
-                                   reinterpret_cast<const void*>(buffer_start + *rdma_head_ptr), 
-                                   consume_size);
-                        memory_copy_callback(dest_memory, consume_size);
-                    }
-                }
-            }
-            
-            // PROPER WRAP-AROUND: Advance our head with jump-to-beginning logic
-            volatile uint64_t new_head;
-            // if (*rdma_head_ptr + consume_size > ring_size) {
-                // If we would exceed the ring size, jump to the beginning + consume
-                // new_head = consume_size;
-            // } else {
-                // Normal case: just advance the head
-                new_head = *rdma_head_ptr + consume_size;
-            // }
-            *rdma_head_ptr = new_head;
-
-             _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
-            _mm_mfence();
-            
-            // Verify what we're about to send
-            // uint64_t verify_value = *rdma_head_ptr;
-            // std::cout << "[RECV_RDMA_WRITE] Writing head=" << new_head 
-            //           << " (verified value at head_ptr=" << verify_value << ")"
-            //           << " FROM local head_ptr=0x" << std::hex << reinterpret_cast<uint64_t>(rdma_head_ptr)
-            //           << " TO remote head_addr=0x" << this->head_addr << std::dec
-            //           << " on node " << this->send_node 
-            //           << " rkey=0x" << std::hex << this->head_r_key << std::dec << std::endl;
-            // std::cout.flush();
-
-            // Notify sender of new head position via RDMA (use our registered head memory address)
-            this->service_client.template oob_memwrite<typename std::tuple_element<0, std::tuple<CascadeTypes...>>::type>(
-                this->head_addr,
-                this->send_node,
-                this->head_r_key,
-                sizeof(uint64_t),
-                false,
-                reinterpret_cast<uint64_t>(rdma_head_ptr),  // Use registered head memory address
-                false,
-                false
-                    //true  // MAKE IT SYNCHRONOUS TO ENSURE COMPLETION
-            );
-            //  std::cout << "[RECV_DATA] RDMA write COMPLETED" << *rdma_head_ptr  << std::endl;
-            // std::cout << "[RECV_DATA] RDMA write COMPLETED (synchronous) for head=" << *rdma_head_ptr << std::endl;
-            // std::cout.flush();
-            
-            // Ensure RDMA head update is ordered and visible
-            std::atomic_thread_fence(std::memory_order_release);
-            
-            // Yield briefly to allow Derecho threads to run
-            std::this_thread::yield();
-        } else {
-            // Just pause when no data available (for minimum latency)
-            _mm_pause();
-        }
-    }
-}
-*/
-
-// ============================================================================
-// NEW VERSION: Enhanced run_recv with batch chunk processing and timestamp logging
+// run_recv with batch chunk processing and timestamp logging
 // ============================================================================
 template<typename... CascadeTypes>
 inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
@@ -779,7 +592,7 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
     while (stop_flag.load(std::memory_order_acquire) == 0) {
         // Flush tail cache line to see latest RDMA-updated value from sender
         _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
-        _mm_mfence();
+        // _mm_mfence();
         
         if (*rdma_tail_ptr != *rdma_head_ptr) {
             uint64_t buffer_start = reinterpret_cast<uint64_t>(buff);
@@ -812,8 +625,6 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
                 _mm_pause();
                 continue;
             }
-            // std::cout << "[RECV_CHUNKS] head=" << *rdma_head_ptr 
-            //   << ", tail=" << *rdma_tail_ptr << ", chunks available=" << chunks_available << ", 16KB*chunks+head" << 16384*chunks_available+*rdma_head_ptr  << std::endl;
             
             // LOOP 1: Log timestamps for all available chunks using correct TestData sequence numbers
             uint64_t current_head_offset = *rdma_head_ptr;
@@ -896,12 +707,12 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
             std::atomic_thread_fence(std::memory_order_release);
             
             // Check if we've received all expected chunks
-            // if (this->total_chunks_received.load() >= expected_total_chunks) {
-            //     std::cout << "[RECV_COMPLETE] Received all " << this->total_chunks_received.load()
-            //               << " chunks. Flushing timestamps..." << std::endl;
-            //     TimestampLogger::flush("recv_oob_fast_path_timestamp.dat");
-            //     std::cout << "[RECV_COMPLETE] Timestamp flush complete." << std::endl;
-            // }
+            if (this->total_chunks_received.load() >= expected_total_chunks) {
+                std::cout << "[RECV_COMPLETE] Received all " << this->total_chunks_received.load()
+                          << " chunks. Flushing timestamps..." << std::endl;
+                TimestampLogger::flush("recv_oob_fast_path_timestamp.dat");
+                std::cout << "[RECV_COMPLETE] Timestamp flush complete." << std::endl;
+            }
             
         } else {
             // Just pause when no data available (for minimum latency)

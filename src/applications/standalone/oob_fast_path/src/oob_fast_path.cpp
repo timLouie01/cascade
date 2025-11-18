@@ -473,31 +473,8 @@ private:
         
         for (int i = 0; i < num_messages; ++i) {
             // Apply configured sleep time between consecutive writes if specified
-            if (sleep_time_us > 0) {
-                // Busy wait instead of yielding CPU
-                auto busy_start = std::chrono::high_resolution_clock::now();
-                auto target_duration = std::chrono::microseconds(sleep_time_us);
-                while (std::chrono::high_resolution_clock::now() - busy_start < target_duration) {
-                    _mm_pause(); // CPU hint for spin-wait loops
-                }
-            }
+           
             
-            // Wait for space with tight spinning (for minimum latency)
-            //  while (!send_buf->can_fit(sizeof(TestData))) {
-            //      _mm_pause();  // Just pause, no yields or sleeps
-            // }
-            
-            // DEBUG: Check fill levels BEFORE pacing
-            // if (i % 10 == 0) {
-            //     size_t fill_chunks = send_buf->get_fill_chunks();
-            //     size_t available = send_buf->get_available_space();
-            //     std::cout << "[SEND_DEBUG] Message " << i << ": fill_chunks=" << fill_chunks << ", available=" << available << " bytes, sleep=" << sleep_time_us << "us" << std::endl;
-            // }
-            
-            // PACE Sender by waiting for there to be fewer than 2 full chunks (conditional)
-            // while (send_buf->get_fill_chunks() >= 1) {
-            //     _mm_pause();
-            // }
             
             try {
                 // Wait for space first
@@ -523,12 +500,21 @@ private:
                 
                 // Write sequence number at the beginning for identification
                 snprintf(data->message, 32, "MSG_%lu:", static_cast<unsigned long>(i + 1));
-                
+                 
+                auto busy_start = std::chrono::high_resolution_clock::now();
+                auto target_duration = std::chrono::microseconds(sleep_time_us);
+
                 // Log send timestamp
                 TimestampLogger::log(LOG_OOBWRITE_SEND, client.get_my_id(), data->sequence_number);
                 
                 // Manually advance tail after in-place creation
                 send_buf->advance_tail_manual(sizeof(TestData));
+
+                if (sleep_time_us > 0){
+                    while (std::chrono::high_resolution_clock::now() - busy_start < target_duration) {
+                        _mm_pause(); // CPU hint for spin-wait loops
+                    }
+                }
                 
             } catch (const std::exception& e) {
                 std::cout << "[ERROR] Exception while sending data at message " << i << ": " << e.what() << std::endl;

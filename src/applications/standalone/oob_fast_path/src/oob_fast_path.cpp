@@ -473,7 +473,13 @@ private:
         
         for (int i = 0; i < num_messages; ++i) {
             // Apply configured sleep time between consecutive writes if specified
-           
+            if (sleep_time_us > 0){
+                auto busy_start = std::chrono::high_resolution_clock::now();
+                auto target_duration = std::chrono::microseconds(sleep_time_us);
+                    while (std::chrono::high_resolution_clock::now() - busy_start < target_duration) {
+                        _mm_pause(); // CPU hint for spin-wait loops
+                    }
+            }
             
             
             try {
@@ -501,8 +507,8 @@ private:
                 // Write sequence number at the beginning for identification
                 snprintf(data->message, 32, "MSG_%lu:", static_cast<unsigned long>(i + 1));
                  
-                auto busy_start = std::chrono::high_resolution_clock::now();
-                auto target_duration = std::chrono::microseconds(sleep_time_us);
+                // auto busy_start = std::chrono::high_resolution_clock::now();
+                // auto target_duration = std::chrono::microseconds(sleep_time_us);
 
                 // Log send timestamp
                 TimestampLogger::log(LOG_OOBWRITE_SEND, client.get_my_id(), data->sequence_number);
@@ -510,11 +516,11 @@ private:
                 // Manually advance tail after in-place creation
                 send_buf->advance_tail_manual(sizeof(TestData));
 
-                if (sleep_time_us > 0){
-                    while (std::chrono::high_resolution_clock::now() - busy_start < target_duration) {
-                        _mm_pause(); // CPU hint for spin-wait loops
-                    }
-                }
+                // if (sleep_time_us > 0){
+                //     while (std::chrono::high_resolution_clock::now() - busy_start < target_duration) {
+                //         _mm_pause(); // CPU hint for spin-wait loops
+                //     }
+                // }
                 
             } catch (const std::exception& e) {
                 std::cout << "[ERROR] Exception while sending data at message " << i << ": " << e.what() << std::endl;

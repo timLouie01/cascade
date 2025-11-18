@@ -371,8 +371,8 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
                 available_data = *rdma_send_tail_ptr - *rdma_tail_ptr;
                 if (available_data >= chunk_size) {
                     // We can send a full 5KiB chunk
-                    // data_size = chunk_size;
-                    data_size = (available_data /chunk_size)*chunk_size;
+                    data_size = chunk_size;
+                    // data_size = (available_data /chunk_size)*chunk_size;
                 }else {
                     // No data to send
                     std::this_thread::yield();
@@ -384,8 +384,8 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
                 uint64_t space_to_end = ring_size - *rdma_tail_ptr;
                 if (space_to_end >= chunk_size) {
                     // We can fit 5KiB before wrap
-                    // data_size = chunk_size;
-                     data_size = (available_data /chunk_size)*chunk_size;
+                    data_size = chunk_size;
+                    //  data_size = (available_data /chunk_size)*chunk_size;
                 } else {
                     // Not enough space to end for 5KB, need to wrap around
                     // But we can only wrap if there's space at the front (head > 0)
@@ -403,8 +403,8 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
                         available_data = *rdma_send_tail_ptr - *rdma_tail_ptr;
                         if (available_data >= chunk_size) {
                             // We can send a full 5KiB chunk
-                            // data_size = chunk_size;
-                            data_size = (available_data /chunk_size)*chunk_size;
+                            data_size = chunk_size;
+                            // data_size = (available_data /chunk_size)*chunk_size;
                         }else {
                             // No data to send
                             std::this_thread::yield();

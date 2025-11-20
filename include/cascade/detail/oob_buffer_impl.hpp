@@ -113,6 +113,9 @@ uint64_t oob_send_buffer<CascadeTypes...>::get_write_location() {
 template<typename... CascadeTypes>
 inline void oob_send_buffer<CascadeTypes...>::advance_tail(size_t bytes_written) {
     // Get volatile pointer once, like in run_send()
+    
+    mm_clflush(const_cast<const void*>(static_cast<volatile void*>(send_tail_ptr)));
+    _mm_mfence();
     volatile uint64_t* send_tail_ptr = reinterpret_cast<volatile uint64_t*>(send_tail.load());
     
     // Read current value through volatile pointer

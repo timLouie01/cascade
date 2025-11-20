@@ -595,7 +595,7 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
 
     while (stop_flag.load(std::memory_order_acquire) == 0) {
         // Flush tail cache line to see latest RDMA-updated value from sender
-        _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
+        // _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
         _mm_mfence();
         
         if (*rdma_tail_ptr != *rdma_head_ptr) {
@@ -642,10 +642,17 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
                 const uint64_t* sequence_ptr = reinterpret_cast<const uint64_t*>(chunk_data);
                 uint64_t actual_sequence = *sequence_ptr;
                 TimestampLogger::log(LOG_OOBWRITE_RECV, this->service_client.get_my_id(), actual_sequence);
+                if (actual_sequence >= expected_total_chunks) {
+                    std::cout << "[RECV_COMPLETE] Received all " <<     this->total_chunks_received.load()
+                          << " chunks. Flushing timestamps..." << std::endl;
+                    TimestampLogger::flush("recv_oob_fast_path_timestamp.dat");
+                    std::cout << "[RECV_COMPLETE] Timestamp flush complete." << std::endl;
+                }
             }
             uint64_t new_head = *rdma_head_ptr + chunk_size*chunks_available;
             *rdma_head_ptr  = new_head;
-            this->total_chunks_received.fetch_add(chunks_available);
+
+            // this->total_chunks_received.fetch_add(chunks_available);
 
             
             // LOOP 2: Now process each chunk
@@ -692,7 +699,7 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
             // }
             
             // Flush head cache line after all chunk updates
-            _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
+            // _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
             _mm_mfence();
 
             // Notify sender of new head position via RDMA
@@ -711,12 +718,12 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
             std::atomic_thread_fence(std::memory_order_release);
             
             // Check if we've received all expected chunks
-            if (this->total_chunks_received.load() >= expected_total_chunks) {
-                std::cout << "[RECV_COMPLETE] Received all " << this->total_chunks_received.load()
-                          << " chunks. Flushing timestamps..." << std::endl;
-                TimestampLogger::flush("recv_oob_fast_path_timestamp.dat");
-                std::cout << "[RECV_COMPLETE] Timestamp flush complete." << std::endl;
-            }
+            // if (this->total_chunks_received.load() >= expected_total_chunks) {
+                // std::cout << "[RECV_COMPLETE] Received all " << this->total_chunks_received.load()
+                //           << " chunks. Flushing timestamps..." << std::endl;
+                // TimestampLogger::flush("recv_oob_fast_path_timestamp.dat");
+                // std::cout << "[RECV_COMPLETE] Timestamp flush complete." << std::endl;
+            // }
             
         } else {
             // Just pause when no data available (for minimum latency)

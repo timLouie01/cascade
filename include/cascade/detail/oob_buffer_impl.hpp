@@ -595,7 +595,7 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
 
     while (stop_flag.load(std::memory_order_acquire) == 0) {
         // Flush tail cache line to see latest RDMA-updated value from sender
-        // _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
+        _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
         _mm_mfence();
         
         if (*rdma_tail_ptr != *rdma_head_ptr) {
@@ -699,7 +699,7 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
             // }
             
             // Flush head cache line after all chunk updates
-            // _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
+            _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
             _mm_mfence();
 
             // Notify sender of new head position via RDMA

@@ -116,9 +116,9 @@ inline void oob_send_buffer<CascadeTypes...>::advance_tail(size_t bytes_written)
 
     
     volatile uint64_t* send_tail_ptr = reinterpret_cast<volatile uint64_t*>(send_tail.load());
-    mm_clflush(const_cast<const void*>(static_cast<volatile void*>(send_tail_ptr)));
+    _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(send_tail_ptr)));
     _mm_mfence();
-    
+
     // Read current value through volatile pointer
     uint64_t current_send_tail = *send_tail_ptr;
     

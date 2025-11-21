@@ -100,7 +100,7 @@ public:
         
         if (tokens[1] == "prepare_send") {
             // Sender - prepare to send data
-            const uint64_t ring_size = 256 * 1024; // 64KB ring buffer
+            const uint64_t ring_size = 64 * 1024; // 64KB ring buffer
             const uint64_t chunk_size = 16 * 1024; // NEW: 8KB programmable chunk size (was 5KB)
             uint32_t dest_node = 1; // static destination node
             
@@ -164,7 +164,7 @@ public:
         }
         else if (tokens[1] == "prepare_recv") {
             // Receiver - prepare to receive data
-            const uint64_t ring_size = 256 * 1024; // 64KB ring buffer
+            const uint64_t ring_size = 64 * 1024; // 64KB ring buffer
             const uint64_t chunk_size = 16 * 1024; // NEW: 8KB programmable chunk size (was 5KB)
             uint32_t send_node = 0; // static sender node
             

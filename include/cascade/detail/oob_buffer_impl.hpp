@@ -424,8 +424,7 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
             //           << send_from_offset << " to remote offset " << *rdma_tail_ptr  << " (WRAP ENABLED)" << std::endl;
             
             // Write data to remote buffer at their current tail position
-            TimestampLogger::log(1,i,0);
-            ++i;
+             TimestampLogger::log(1,i,0);
             this->service_client.template oob_memwrite<typename std::tuple_element<0, std::tuple<CascadeTypes...>>::type>(
                 this->dest_buffer_addr + *rdma_tail_ptr,  // Write at remote tail
                 this->recv_node,
@@ -436,9 +435,10 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
                 false,
                 false
             );
-            
+            TimestampLogger::log(2,i,0);
+            ++i;
             // Ensure data write completes before updating tail
-            // std::atomic_thread_fence(std::memory_order_release);
+            std::atomic_thread_fence(std::memory_order_release);
             
             // Update our local tail atomically with PROPER WRAP-AROUND
             volatile uint64_t new_tail;

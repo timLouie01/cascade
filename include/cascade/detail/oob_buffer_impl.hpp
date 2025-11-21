@@ -116,8 +116,8 @@ inline void oob_send_buffer<CascadeTypes...>::advance_tail(size_t bytes_written)
 
     
     volatile uint64_t* send_tail_ptr = reinterpret_cast<volatile uint64_t*>(send_tail.load());
-    _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(send_tail_ptr)));
-    _mm_mfence();
+    // _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(send_tail_ptr)));
+    // _mm_mfence();
 
     // Read current value through volatile pointer
     uint64_t current_send_tail = *send_tail_ptr;
@@ -134,8 +134,8 @@ inline void oob_send_buffer<CascadeTypes...>::advance_tail(size_t bytes_written)
     *send_tail_ptr = new_send_tail;
     
     // Flush send_tail cache line so RDMA thread (core 10) sees the updated value
-    _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(send_tail_ptr)));
-    _mm_mfence();
+    // _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(send_tail_ptr)));
+    // _mm_mfence();
     
     // std::cout << "[ADVANCE_TAIL] Advanced send_tail from " << current_send_tail 
     //           << " to " << new_send_tail << " (+" << bytes_written << " bytes) WRAP ENABLED" << std::endl;
@@ -153,13 +153,13 @@ template<typename... CascadeTypes>
     
     // CRITICAL: Flush cache lines before reading to ensure we see latest values
     // head is updated by remote RDMA, send_tail is updated by our own advance_tail()
-    _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
-    _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
-    _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_send_tail_ptr)));
-    _mm_mfence();  // Ensure flushes complete before reading
+    // _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
+    // _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
+    // _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_send_tail_ptr)));
+    // _mm_mfence();  // Ensure flushes complete before reading
     
     // Force memory barrier to get fresh RDMA-updated values
-    std::atomic_thread_fence(std::memory_order_acquire);
+    // std::atomic_thread_fence(std::memory_order_acquire);
 
     if (first_iter){
         first_iter = false;
@@ -206,8 +206,8 @@ size_t oob_send_buffer<CascadeTypes...>::get_fill_chunks() {
     volatile uint64_t* rdma_head_ptr = reinterpret_cast<volatile uint64_t*>(head.load());
     volatile uint64_t* rdma_send_tail_ptr = reinterpret_cast<volatile uint64_t*>(send_tail.load());
 
-    _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
-    _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_send_tail_ptr)));
+    // _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
+    // _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_send_tail_ptr)));
   
      if (*rdma_send_tail_ptr >= *rdma_head_ptr){
         // Not Wrap
@@ -264,10 +264,10 @@ template<typename... CascadeTypes>
     
     // CRITICAL: Flush cache lines before reading to ensure we see latest values
     // head is updated by remote RDMA, send_tail is updated by our own advance_tail()
-    _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
-    _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
-    _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_send_tail_ptr)));
-    _mm_mfence();  // Ensure flushes complete before reading
+    // _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
+    // _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
+    // _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_send_tail_ptr)));
+    // _mm_mfence();  // Ensure flushes complete before reading
 
     // std::cout << "[SPACE_DEBUG] head=" << *rdma_head_ptr << "tail" << *rdma_tail_ptr << ", send_tail=" << *rdma_send_tail_ptr 
     //               << ", available=" << get_available_space() << " (WRAP ENABLED)" << std::endl;
@@ -326,9 +326,9 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
         // CRITICAL: Flush cache lines before reading to ensure we see latest values
         // - head is updated by remote RDMA (receiver)
         // - send_tail is updated by app thread (core 12)
-        _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
-        _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_send_tail_ptr)));
-        _mm_mfence();  // Ensure flushes complete before reading
+        // _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
+        // _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_send_tail_ptr)));
+        // _mm_mfence();  // Ensure flushes complete before reading
         
         // Read the values directly through volatile pointers
         // These are now guaranteed fresh after the cache flush
@@ -437,8 +437,6 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
             );
             TimestampLogger::log(2,i,0);
             ++i;
-            // Ensure data write completes before updating tail
-            std::atomic_thread_fence(std::memory_order_release);
             
             // Update our local tail atomically with PROPER WRAP-AROUND
             volatile uint64_t new_tail;
@@ -450,10 +448,12 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
                 new_tail = *rdma_tail_ptr + data_size;
             }
             *rdma_tail_ptr = new_tail;
-            
+
+            // Ensure data write completes before updating tail
+            // std::atomic_thread_fence(std::memory_order_release);
             // Flush tail cache line so app thread (core 12) sees the updated value
-            _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
-            _mm_mfence();
+            // _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
+            // _mm_mfence();
             
             // std::cout << "[RDMA_SEND] Updated local tail to " << *rdma_tail_ptr << " (WRAP ENABLED)" << std::endl;
             
@@ -468,9 +468,6 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
                 false,
                 false
             );
-            
-            // Ensure RDMA tail update is ordered and visible
-            std::atomic_thread_fence(std::memory_order_release);
             
         } else {
             // Just pause when no data to send (for minimum latency)
@@ -583,8 +580,8 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
 
     while (stop_flag.load(std::memory_order_acquire) == 0) {
         // Flush tail cache line to see latest RDMA-updated value from sender
-        _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
-        _mm_mfence();
+        // _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
+        // _mm_mfence();
         
         if (*rdma_tail_ptr != *rdma_head_ptr) {
             uint64_t buffer_start = reinterpret_cast<uint64_t>(buff);
@@ -687,8 +684,11 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
             // }
             
             // Flush head cache line after all chunk updates
-            _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
-            _mm_mfence();
+            // _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
+            // _mm_mfence();
+
+            // Ensure RDMA head update is ordered and visible
+            // std::atomic_thread_fence(std::memory_order_release);
 
             // Notify sender of new head position via RDMA
             this->service_client.template oob_memwrite<typename std::tuple_element<0, std::tuple<CascadeTypes...>>::type>(
@@ -702,8 +702,6 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
                 false
             );
             
-            // Ensure RDMA head update is ordered and visible
-            std::atomic_thread_fence(std::memory_order_release);
             
             // Check if we've received all expected chunks
             // if (this->total_chunks_received.load() >= expected_total_chunks) {

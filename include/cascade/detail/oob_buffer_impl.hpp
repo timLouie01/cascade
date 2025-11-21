@@ -116,8 +116,8 @@ inline void oob_send_buffer<CascadeTypes...>::advance_tail(size_t bytes_written)
 
     
     volatile uint64_t* send_tail_ptr = reinterpret_cast<volatile uint64_t*>(send_tail.load());
-    _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(send_tail_ptr)));
-    _mm_mfence();
+    // _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(send_tail_ptr)));
+    // _mm_mfence();
 
     // Read current value through volatile pointer
     uint64_t current_send_tail = *send_tail_ptr;
@@ -320,6 +320,8 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
     volatile uint64_t* rdma_tail_ptr = reinterpret_cast<volatile uint64_t*>(tail.load());
     volatile uint64_t* rdma_send_tail_ptr = reinterpret_cast<volatile uint64_t*>(send_tail.load());
 
+    int i = 1;
+
     while (stop_flag.load(std::memory_order_acquire) == 0) {
         // CRITICAL: Flush cache lines before reading to ensure we see latest values
         // - head is updated by remote RDMA (receiver)
@@ -342,26 +344,6 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
         
         // Send data from tail to send_tail (data written but not yet sent)
         if (*rdma_send_tail_ptr != *rdma_tail_ptr) {
-            // std::cout << "[RDMA_SEND] *** DATA TO SEND *** tail=" << *rdma_tail_ptr 
-            //           << ", send_tail=" << *rdma_send_tail_ptr << " (WRAP ENABLED)" << std::endl;
-            // std::cout.flush();
-            
-            // Validate pointers before use
-            // if (!rdma_head_ptr || !rdma_tail_ptr || !rdma_send_tail_ptr || !buff) {
-            //     std::cout << "[RDMA_ERROR] NULL pointer detected: head_ptr=" << rdma_head_ptr 
-            //               << ", tail_ptr=" << rdma_tail_ptr << ", send_tail_ptr=" << rdma_send_tail_ptr 
-            //               << ", buff=" << buff << std::endl;
-            //     std::this_thread::yield();
-            //     continue;
-            // }
-            
-            // Validate offsets are within bounds
-            // if (*rdma_tail_ptr >= ring_size || *rdma_send_tail_ptr >= ring_size) {
-            //     std::cout << "[RDMA_ERROR] Offset out of bounds: tail=" << *rdma_tail_ptr 
-            //               << ", send_tail=" << *rdma_send_tail_ptr << ", ring_size=" << ring_size << std::endl;
-            //     std::this_thread::yield();
-            //     continue;
-            // }
             
             uint64_t buffer_start = reinterpret_cast<uint64_t>(buff);
             const uint64_t chunk_size = this->chunk_size; // programmable chunk size
@@ -442,6 +424,8 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
             //           << send_from_offset << " to remote offset " << *rdma_tail_ptr  << " (WRAP ENABLED)" << std::endl;
             
             // Write data to remote buffer at their current tail position
+            TimestampLogger::log(1,i,0);
+            ++i;
             this->service_client.template oob_memwrite<typename std::tuple_element<0, std::tuple<CascadeTypes...>>::type>(
                 this->dest_buffer_addr + *rdma_tail_ptr,  // Write at remote tail
                 this->recv_node,
@@ -454,7 +438,7 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
             );
             
             // Ensure data write completes before updating tail
-            std::atomic_thread_fence(std::memory_order_release);
+            // std::atomic_thread_fence(std::memory_order_release);
             
             // Update our local tail atomically with PROPER WRAP-AROUND
             volatile uint64_t new_tail;

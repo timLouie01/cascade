@@ -597,10 +597,10 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
     const uint64_t expected_total_chunks = 10000;
     while (stop_flag.load(std::memory_order_acquire) == 0) {
         // Conditional Flush Only when necessary:
-        
+        _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
+        _mm_mfence();
         if (*rdma_tail_ptr != *rdma_head_ptr) {
-            _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
-            _mm_mfence();
+            
             
             uint64_t buffer_start = reinterpret_cast<uint64_t>(buff);
             uint64_t available_data;

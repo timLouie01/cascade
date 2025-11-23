@@ -595,12 +595,10 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
     // Chunk tracking for timestamp logging (use member so it can be reset)
     const uint64_t chunk_size = this->chunk_size; // programmable chunk size
     const uint64_t expected_total_chunks = 10000;
-    uint64_t consecutive_empty_reads = 0;
     while (stop_flag.load(std::memory_order_acquire) == 0) {
         // Conditional Flush Only when necessary:
         
         if (*rdma_tail_ptr != *rdma_head_ptr) {
-            consecutive_empty_reads = 0;   
             uint64_t buffer_start = reinterpret_cast<uint64_t>(buff);
             uint64_t available_data;
 
@@ -721,16 +719,9 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
             }
             
         } else {
-            consecutive_empty_reads++;
-            if (consecutive_empty_reads > 5){
-                // Flush tail cache line to see latest RDMA-updated value from sender
-                _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
-                _mm_mfence();
-                consecutive_empty_reads = 0;
-            }else{
-            // Just pause when no data available (for minimum latency)
-            _mm_pause();
-            }
+            // Flush tail cache line to see latest RDMA-updated value from sender
+            _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
+            _mm_mfence();
         }
     }
     

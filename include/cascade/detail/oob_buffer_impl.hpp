@@ -562,6 +562,24 @@ inline void oob_recv_buffer<CascadeTypes...>::stop() {
     stop_flag.store(1, std::memory_order_release);    
     if (receiving_thread.joinable()) receiving_thread.join();
 }
+
+template<typename... CascadeTypes>
+void oob_recv_buffer<CascadeTypes...>::run_head_updates(volatile uint64_t* rdma_head_ptr){
+    _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
+    _mm_mfence();
+
+    // Notify sender of new head position via RDMA
+    this->service_client.template oob_memwrite<typename std::tuple_element<0, std::tuple<CascadeTypes...>>::type>(
+        this->head_addr,
+        this->send_node,
+        this->head_r_key,
+        sizeof(uint64_t),
+        false,
+        reinterpret_cast<uint64_t>(rdma_head_ptr),
+        false,
+        false
+    );
+}
 // ============================================================================
 // run_recv with batch chunk processing and timestamp logging
 // ============================================================================
@@ -597,9 +615,7 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
     const uint64_t expected_total_chunks = 10000;
 
     while (stop_flag.load(std::memory_order_acquire) == 0) {
-        // Flush tail cache line to see latest RDMA-updated value from sender
-        _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
-        _mm_mfence();
+        
         
         if (*rdma_tail_ptr != *rdma_head_ptr) {
             uint64_t buffer_start = reinterpret_cast<uint64_t>(buff);
@@ -695,21 +711,21 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
             // }
             
             // Flush head cache line after all chunk updates
-            _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
-            _mm_mfence();
+            // _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
+            // _mm_mfence();
 
-            // Notify sender of new head position via RDMA
-            this->service_client.template oob_memwrite<typename std::tuple_element<0, std::tuple<CascadeTypes...>>::type>(
-                this->head_addr,
-                this->send_node,
-                this->head_r_key,
-                sizeof(uint64_t),
-                false,
-                reinterpret_cast<uint64_t>(rdma_head_ptr),
-                false,
-                false
-            );
-            
+            // // Notify sender of new head position via RDMA
+            // this->service_client.template oob_memwrite<typename std::tuple_element<0, std::tuple<CascadeTypes...>>::type>(
+            //     this->head_addr,
+            //     this->send_node,
+            //     this->head_r_key,
+            //     sizeof(uint64_t),
+            //     false,
+            //     reinterpret_cast<uint64_t>(rdma_head_ptr),
+            //     false,
+            //     false
+            // );
+            this->run_head_updates(rdma_head_ptr);
             // Ensure RDMA head update is ordered and visible
             // std::atomic_thread_fence(std::memory_order_release);
             
@@ -722,6 +738,9 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
             }
             
         } else {
+            // Flush tail cache line to see latest RDMA-updated value from sender
+            _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
+            _mm_mfence();
             // Just pause when no data available (for minimum latency)
             _mm_pause();
         }

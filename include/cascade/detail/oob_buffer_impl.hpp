@@ -130,8 +130,8 @@ inline void oob_send_buffer<CascadeTypes...>::advance_tail(size_t bytes_written)
     *send_tail_ptr = new_send_tail;
     
     // Flush send_tail cache line so RDMA thread (core 10) sees the updated value
-    // _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(send_tail_ptr)));
-    // _mm_mfence();
+    _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(send_tail_ptr)));
+    _mm_mfence();
     
     // std::cout << "[ADVANCE_TAIL] Advanced send_tail from " << current_send_tail 
     //           << " to " << new_send_tail << " (+" << bytes_written << " bytes) WRAP ENABLED" << std::endl;

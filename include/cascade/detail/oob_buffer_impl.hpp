@@ -682,6 +682,7 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
             }
             uint64_t new_head = *rdma_head_ptr + chunk_size*chunks_available;
             *rdma_head_ptr  = new_head;
+            _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
             this->total_chunks_received.fetch_add(chunks_available);
 
             

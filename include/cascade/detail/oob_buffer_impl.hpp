@@ -599,6 +599,7 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
         // Conditional Flush Only when necessary:
         
         if (*rdma_tail_ptr != *rdma_head_ptr) {
+            
             uint64_t buffer_start = reinterpret_cast<uint64_t>(buff);
             uint64_t available_data;
 
@@ -719,9 +720,8 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
             }
             
         } else {
-            // Flush tail cache line to see latest RDMA-updated value from sender
-            _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
-            _mm_mfence();
+            // Just pause when no data available (for minimum latency)
+            _mm_pause();
         }
     }
     

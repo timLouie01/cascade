@@ -16,7 +16,7 @@
 namespace derecho {
 namespace cascade {
 
-nnamespace {
+namespace {
     struct HeadUpdateRequest {
         volatile uint64_t* head_ptr;
         uint64_t head_addr;
@@ -653,6 +653,8 @@ inline void oob_recv_buffer<CascadeTypes...>::stop() {
     stop_flag.store(1, std::memory_order_release);    
     if (receiving_thread.joinable()) receiving_thread.join();
 }
+
+
 
 // ============================================================================
 // run_recv with batch chunk processing and timestamp logging

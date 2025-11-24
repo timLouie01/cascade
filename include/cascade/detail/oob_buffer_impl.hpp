@@ -5,6 +5,11 @@
 #include <future>
 #include <pthread.h>
 #include <immintrin.h>
+#include <queue>
+#include <memory>
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
 #include "cascade/utils.hpp"
 #ifndef LOG_OOBWRITE_RECV
 #define LOG_OOBWRITE_RECV 7006
@@ -69,7 +74,8 @@ void shared_run_head_updates(volatile uint64_t* rdma_head_ptr,
                         _mm_mfence();
 
                         auto* client = static_cast<ServiceClient<CascadeTypes...>*>(request->service_client_ptr);
-                        client->template oob_memwrite<typename std::tuple_element<0, std::tuple<CascadeTypes...>>::type>(
+                        using FirstType = typename std::tuple_element<0, std::tuple<CascadeTypes...>>::type;
+                        client->template oob_memwrite<FirstType>(
                             request->head_addr,
                             request->send_node,
                             request->head_r_key,

@@ -489,6 +489,7 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
             // std::atomic_thread_fence(std::memory_order_release);
             
         } else {
+            _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_send_tail_ptr)));
             // Just pause when no data to send (for minimum latency)
             _mm_pause();
         }

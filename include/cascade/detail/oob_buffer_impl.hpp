@@ -16,6 +16,94 @@
 namespace derecho {
 namespace cascade {
 
+nnamespace {
+    struct HeadUpdateRequest {
+        volatile uint64_t* head_ptr;
+        uint64_t head_addr;
+        node_id_t send_node;
+        uint64_t head_r_key;
+        void* service_client_ptr;
+        std::atomic<bool> completed{false};
+    };
+    
+    static std::queue<std::unique_ptr<HeadUpdateRequest>> work_queue;
+    static std::mutex queue_mutex;
+    static std::condition_variable work_available;
+    static std::atomic<bool> head_update_thread_created{false};
+    static std::thread* head_update_worker = nullptr;
+    static std::atomic<bool> worker_should_stop{false};
+}
+
+template<typename... CascadeTypes>
+void shared_run_head_updates(volatile uint64_t* rdma_head_ptr, 
+                             uint64_t head_addr,
+                             node_id_t send_node,
+                             uint64_t head_r_key,
+                             ServiceClient<CascadeTypes...>* service_client) {
+    
+    // Create worker thread once
+    if (!head_update_thread_created.exchange(true)) {
+        head_update_worker = new std::thread([]() {
+            // Pin to core 9
+            cpu_set_t cpuset;
+            CPU_ZERO(&cpuset);
+            CPU_SET(9, &cpuset);
+            pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+            
+            while (!worker_should_stop.load()) {
+                std::unique_lock<std::mutex> lock(queue_mutex);
+                work_available.wait(lock, []() { 
+                    return !work_queue.empty() || worker_should_stop.load(); 
+                });
+                
+                if (worker_should_stop.load()) break;
+                
+                while (!work_queue.empty()) {
+                    auto request = std::move(work_queue.front());
+                    work_queue.pop();
+                    lock.unlock();
+                    
+                    // Process the request with its own parameters
+                    if (request->head_ptr) {
+                        _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(request->head_ptr)));
+                        _mm_mfence();
+
+                        auto* client = static_cast<ServiceClient<CascadeTypes...>*>(request->service_client_ptr);
+                        client->template oob_memwrite<typename std::tuple_element<0, std::tuple<CascadeTypes...>>::type>(
+                            request->head_addr,
+                            request->send_node,
+                            request->head_r_key,
+                            sizeof(uint64_t),
+                            false,
+                            reinterpret_cast<uint64_t>(request->head_ptr),
+                            false,
+                            false
+                        );
+                    }
+                    
+                    request->completed.store(true);
+                    lock.lock();
+                }
+            }
+        });
+        head_update_worker->detach();
+    }
+    
+    // Create and queue the request
+    auto request = std::make_unique<HeadUpdateRequest>();
+    request->head_ptr = rdma_head_ptr;
+    request->head_addr = head_addr;
+    request->send_node = send_node;
+    request->head_r_key = head_r_key;
+    request->service_client_ptr = service_client;
+    
+    {
+        std::lock_guard<std::mutex> lock(queue_mutex);
+        work_queue.push(std::move(request));
+    }
+    work_available.notify_one();
+}
+
 // ---------- oob_send_buffer ----------
 
 template<typename... CascadeTypes>
@@ -490,6 +578,7 @@ inline void oob_send_buffer<CascadeTypes...>::run_send() {
             
         } else {
             _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_send_tail_ptr)));
+            _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
             // Just pause when no data to send (for minimum latency)
             _mm_pause();
         }
@@ -565,40 +654,6 @@ inline void oob_recv_buffer<CascadeTypes...>::stop() {
     if (receiving_thread.joinable()) receiving_thread.join();
 }
 
-template<typename... CascadeTypes>
-void oob_recv_buffer<CascadeTypes...>::run_head_updates(volatile uint64_t* rdma_head_ptr){
-    // Create a detached thread for the head update with core pinning
-    std::thread head_update_thread([this, rdma_head_ptr]() {
-        // Pin this head update thread to a specific core
-        int head_update_core = 9;
-        
-            cpu_set_t cpuset;
-            CPU_ZERO(&cpuset);
-            CPU_SET(head_update_core, &cpuset);
-            int rc = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
-            if (rc != 0) {
-                std::cerr << "[HEAD_UPDATE_THREAD] Failed to set CPU affinity to core " << head_update_core << ": " << strerror(rc) << std::endl;
-            }
-        
-        _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
-        _mm_mfence();
-
-        // Notify sender of new head position via RDMA
-        this->service_client.template oob_memwrite<typename std::tuple_element<0, std::tuple<CascadeTypes...>>::type>(
-            this->head_addr,
-            this->send_node,
-            this->head_r_key,
-            sizeof(uint64_t),
-            false,
-            reinterpret_cast<uint64_t>(rdma_head_ptr),
-            false,
-            false
-        );
-    });
-    
-    // Detach the thread so it runs independently
-    head_update_thread.detach();
-}
 // ============================================================================
 // run_recv with batch chunk processing and timestamp logging
 // ============================================================================
@@ -745,7 +800,8 @@ inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
             //     false,
             //     false
             // );
-            run_head_updates(rdma_head_ptr);
+            // run_head_updates(rdma_head_ptr);
+            shared_run_head_updates<CascadeTypes...>(rdma_head_ptr, this->head_addr, this->send_node, this->head_r_key, &this->service_client);
             // Ensure RDMA head update is ordered and visible
             // std::atomic_thread_fence(std::memory_order_release);
             

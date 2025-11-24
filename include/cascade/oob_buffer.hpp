@@ -192,7 +192,6 @@ private:
 
   void run_recv();
 
-  void run_head_updates(volatile uint64_t* rdma_head_ptr);
 
 };
 }

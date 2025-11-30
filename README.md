@@ -1,3 +1,9 @@
+# Status Update: RDMA Fast Path Latency Profile (Nov 24 2025)
+We now have end-to-end latency results for the RDMA ring buffer fast path, visualized in the boxplot and histogram below. For 16 KiB messages, latencies are tightly concentrated with min 5.9 µs, median 13.6 µs, mean 15.7 µs, and p99 42.8 µs, with only a small tail of rare outliers that do not exceed 60 µs. Next, we will extend these experiments with throughput benchmarks and direct comparisons against the baseline Derecho/Cascade path to quantify speedups.
+
+<img width="1184" height="672" alt="e2e_latency_us_hist_p99_clean" src="https://github.com/user-attachments/assets/538d1246-b016-4da3-a8fe-bd871eb2659f" />
+<img width="884" height="642" alt="e2e_latency_us_box_nofliers_clean" src="https://github.com/user-attachments/assets/e5c557ff-8c52-4ac3-8ee5-3f982718ff2d" />
+
 # Overview
 Cascade is an AI/ML application hosting framework powered by optimized RDMA data paths. It provides a K/V API for data manipulation in distributed memory and persistent storage. Besides the K/V API, Cascade allows injecting logic on the data paths for low-latency application. The highlights of Cascade's features include the following.
 

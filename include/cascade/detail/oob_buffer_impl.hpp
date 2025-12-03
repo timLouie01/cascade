@@ -707,11 +707,6 @@ inline bool oob_recv_buffer<CascadeTypes...>::process_once() {
         desc.sequence = this->total_chunks_received.load() + i;
         desc.buffer_ptr = this;
         messages.push_back(desc);
-        
-        if (desc.size >= 8) {
-            const uint64_t* seq_ptr = reinterpret_cast<const uint64_t*>(desc.data_ptr);
-            TimestampLogger::log(LOG_OOBWRITE_RECV, this->service_client.get_my_id(), *seq_ptr);
-        }
     }
     
     // Collect messages after wrap
@@ -725,11 +720,6 @@ inline bool oob_recv_buffer<CascadeTypes...>::process_once() {
             desc.sequence = this->total_chunks_received.load() + chunks_in_first_segment + i;
             desc.buffer_ptr = this;
             messages.push_back(desc);
-            
-            if (desc.size >= 8) {
-                const uint64_t* seq_ptr = reinterpret_cast<const uint64_t*>(desc.data_ptr);
-                TimestampLogger::log(LOG_OOBWRITE_RECV, this->service_client.get_my_id(), *seq_ptr);
-            }
         }
     }
     

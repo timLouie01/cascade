@@ -47,7 +47,7 @@ private:
     // Receiver tracking state (moved from static locals to member variables)
     std::atomic<int> received_count{0};
     std::chrono::high_resolution_clock::time_point recv_start_time;
-    static constexpr int expected_messages = 10000;
+    static constexpr int expected_messages = 2*10000;
     bool recv_timer_started{false};
     
     // Store client pointer for callbacks (avoid dangling references)
@@ -74,6 +74,9 @@ private:
         uint8_t padding;       // For alignment
     };
     
+    // Batch processing state
+    std::atomic<uint64_t> total_messages_processed{0};
+    std::atomic<uint64_t> total_batches_processed{0};
 
 public:
     virtual void operator () (const derecho::node_id_t sender,
@@ -342,30 +345,52 @@ public:
                       << ", rkey=0x" << payload.head_info.head_rkey << std::dec << std::endl;
             
             try {
-                // Store client pointer for callbacks (avoids dangling reference)
+                // Store client pointer for use in callbacks
                 client_ptr = &client;
                 
+                // STEP 1: Connect recv buffer to sender's head (setup RDMA connection)
                 client.oob_recv_connect(recv_buf, payload.head_info.head, payload.head_info.head_rkey);
                 std::cout << "[START_RECV] Recv buffer connected to sender's head" << std::endl;
                 
-                client.oob_recv_start(recv_buf, 11);
-                std::cout << "[START_RECV] Recv buffer RDMA thread started on core 11" << std::endl;
+                // STEP 2: Add buffer to shared buffer set
+                // This is where the buffer gets registered for processing
+                auto& buffer_set = oob_recv_buffer_set<VolatileCascadeStoreWithStringKey, 
+                                                       PersistentCascadeStoreWithStringKey, 
+                                                       TriggerCascadeNoStoreWithStringKey>::get_instance();
+                buffer_set.add_buffer(recv_buf.get());
+                std::cout << "[START_RECV] Added recv buffer to shared buffer set" << std::endl;
                 
-                // Register zero-copy lock subscriber for data processing
-                // NO CAPTURE of client reference - use stored pointer instead
-                recv_buf->set_zero_copy_subscriber(
-                    [this](const void* data, size_t size) {
-                        this->process_received_data_zero_copy(data, size);
+                // STEP 3: Register zero-copy batch subscriber
+                // This callback will be invoked by the shared thread when data arrives
+                recv_buf->set_zero_copy_batch_subscriber(
+                    [this](const std::vector<typename oob_recv_buffer<VolatileCascadeStoreWithStringKey, 
+                                                                      PersistentCascadeStoreWithStringKey, 
+                                                                      TriggerCascadeNoStoreWithStringKey>::MessageDescriptor>& messages) {
+                        this->process_received_batch_zero_copy(messages);
                     });
-                std::cout << "[START_RECV] Registered zero-copy lock subscriber" << std::endl;
+                std::cout << "[START_RECV] Registered batch zero-copy subscriber" << std::endl;
                 
-                // CRITICAL: Send acknowledgment back to sender to start RDMA thread
+                // STEP 4: Start shared receive thread (idempotent - safe to call multiple times)
+                // Each recv buffer calls this, but only the first call actually starts the thread
+                // Available strategies:
+                // - FAST_AS_ABLE: Check all buffers as fast as possible (default, lowest latency)
+                // - ROUND_ROBIN: Fair round-robin across buffers (predictable, equal opportunity)
+                // - AGE_FAIRNESS: Prioritize oldest messages (minimizes max message age)
+                using LBStrategy = oob_recv_buffer_set<VolatileCascadeStoreWithStringKey, 
+                                                       PersistentCascadeStoreWithStringKey, 
+                                                       TriggerCascadeNoStoreWithStringKey>::LoadBalancingStrategy;
+                buffer_set.start(11, LBStrategy::FAST_AS_ABLE);  // Change strategy here
+                std::cout << "[START_RECV] Called buffer_set.start() (thread-safe, idempotent)" << std::endl;
+                
+                // STEP 5: Send acknowledgment back to sender to start RDMA thread
+                // This completes the handshake - sender will now start sending data
                 uint32_t my_node_id = client.get_my_id();
                 Blob ack_blob(reinterpret_cast<const uint8_t*>(&my_node_id), sizeof(uint32_t));
                 ObjectWithStringKey ack_obj("oob_fp/receiver_ready", ack_blob);
                 client.put_and_forget<VolatileCascadeStoreWithStringKey>(ack_obj, 0, payload.dest_node);
                 
                 std::cout << "[START_RECV] Sent READY acknowledgment to sender node " << payload.dest_node << std::endl;
+                std::cout << "[START_RECV] Receiver setup complete and ready to receive data" << std::endl;
                 
             } catch (const std::exception& e) {
                 std::cout << "[ERROR] Exception in start_recv: " << e.what() << std::endl;
@@ -540,6 +565,68 @@ private:
         std::cout << "[SEND_RESET] Send operation complete, ready for next run" << std::endl;
     }
     
+    // New batch processing method
+    void process_received_batch_zero_copy(const std::vector<typename oob_recv_buffer<VolatileCascadeStoreWithStringKey, PersistentCascadeStoreWithStringKey, TriggerCascadeNoStoreWithStringKey>::MessageDescriptor>& messages) {
+        try {
+            // Start timer on first batch
+            if (!recv_timer_started) {
+                recv_start_time = std::chrono::high_resolution_clock::now();
+                recv_timer_started = true;
+            }
+            
+            // Process entire batch efficiently
+            for (const auto& msg : messages) {
+                if (msg.size >= sizeof(TestData)) {
+                    const TestData* test_data = reinterpret_cast<const TestData*>(msg.data_ptr);
+                    // Log with sender node ID from the buffer (0 or 1)
+                    TimestampLogger::log(LOG_OOBWRITE_RECV, msg.buffer_ptr->send_node, test_data->sequence_number);
+                    int count = ++received_count;
+                    
+                    // NEW: You can now identify which buffer this came from
+                    // std::cout << "[RECV-BATCH] Message " << test_data->sequence_number 
+                    //           << " from sender node " << msg.buffer_ptr->send_node << std::endl;
+                }
+            }
+            
+            total_messages_processed.fetch_add(messages.size());
+            total_batches_processed.fetch_add(1);
+            
+            // Check completion
+            int count = received_count.load();
+            if (count >= expected_messages) {
+                auto end_time = std::chrono::high_resolution_clock::now();
+                auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    end_time - recv_start_time);
+                
+                uint64_t total_batches = total_batches_processed.load();
+                double avg_batch_size = static_cast<double>(count) / total_batches;
+                
+                std::cout << "[RECV-BATCH] Completed receiving " << count 
+                          << " messages in " << duration.count() << " ms" << std::endl;
+                std::cout << "[RECV-BATCH] Total batches: " << total_batches 
+                          << ", Avg batch size: " << avg_batch_size << std::endl;
+                
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                
+                std::string recv_filename = "recv_oob_fast_path_sleep" + std::to_string(sleep_time_us) + "us_timestamp.dat";
+                TimestampLogger::flush(recv_filename);
+                std::cout << "[RECV-BATCH] Flushed receive timestamps to " << recv_filename << std::endl;
+                
+                // Reset for next run
+                if (recv_buf) {
+                    recv_buf->reset_counters();
+                }
+                received_count.store(0);
+                total_messages_processed.store(0);
+                total_batches_processed.store(0);
+                recv_timer_started = false;
+                std::cout << "[RECV-RESET] Counters reset, ready for next run" << std::endl;
+            }
+        } catch (const std::exception& e) {
+            std::cout << "[ERROR] Exception in process_received_batch_zero_copy: " << e.what() << std::endl;
+        }
+    }
+    
     // Zero-copy lock mode: Direct access with lock/release
     void process_received_data_zero_copy(const void* data, size_t size) {
         try {
@@ -647,15 +734,15 @@ private:
     }
     
     // Hot-swap methods for switching subscription modes
-    void switch_to_zero_copy_mode(ServiceClient<VolatileCascadeStoreWithStringKey, PersistentCascadeStoreWithStringKey, TriggerCascadeNoStoreWithStringKey>& client) {
-        std::cout << "[SWITCH] Switching to zero-copy lock mode" << std::endl;
-        recv_buf->set_zero_copy_subscriber(
-            // [this, &client](const void* data, size_t size, std::function<void()> release_func) {
-            //     this->process_received_data_zero_copy(client, data, size, release_func);
-            // });
-            [this](const void* data, size_t size) {
-                this->process_received_data_zero_copy(data, size);
-            });
+    void switch_to_batch_zero_copy_mode(ServiceClient<VolatileCascadeStoreWithStringKey, PersistentCascadeStoreWithStringKey, TriggerCascadeNoStoreWithStringKey>& client) {
+        std::cout << "[SWITCH] Switching to zero-copy batch mode" << std::endl;
+        recv_buf->set_zero_copy_batch_subscriber(
+            [this](const std::vector<typename oob_recv_buffer<VolatileCascadeStoreWithStringKey, 
+                                                              PersistentCascadeStoreWithStringKey, 
+                                                              TriggerCascadeNoStoreWithStringKey>::MessageDescriptor>& messages) {
+                this->process_received_batch_zero_copy(messages);
+            }
+        );
     }
     
     void switch_to_memory_copy_mode(ServiceClient<VolatileCascadeStoreWithStringKey, PersistentCascadeStoreWithStringKey, TriggerCascadeNoStoreWithStringKey>& client) {

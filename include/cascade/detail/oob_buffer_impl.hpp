@@ -600,23 +600,23 @@ inline oob_recv_buffer<CascadeTypes...>::oob_recv_buffer(void* buff,
                                         node_id_t send_node, 
                                         std::string send_udl,
                                         uint64_t ring_size,
-                                        uint64_t chunk_size,  // NEW: Accept chunk size
+                                        uint64_t chunk_size,
                                         ServiceClient<CascadeTypes...>& service_client) 
                                   : buff(buff), 
                                   head(head),
                                   tail(tail), 
-                                  send_node(send_node),
+                                  send_node(send_node),  // Initialize public const member
                                   send_udl(std::move(send_udl)),
                                   ring_size(ring_size),
-                                  chunk_size(chunk_size),  // NEW: Store chunk size
+                                  chunk_size(chunk_size),
                                   service_client(service_client),
                                   r_key_buff(service_client.oob_rkey(buff)),
                                   r_key_tail_copy(service_client.oob_rkey(tail)),
-                                  subscription_mode(SubscriptionMode::ZERO_COPY_LOCK)
-                                  {
+                                  subscription_mode(SubscriptionMode::ZERO_COPY_LOCK) {
     *reinterpret_cast<uint64_t*>(head) = 0;
     *reinterpret_cast<uint64_t*>(tail) = 0;
 }
+
 template<typename... CascadeTypes>
 inline std::unique_ptr<oob_recv_buffer<CascadeTypes...>>
 oob_recv_buffer<CascadeTypes...>::create(void* buff,
@@ -643,209 +643,127 @@ inline void oob_recv_buffer<CascadeTypes...>::setup_connection(uint64_t head_add
 }
 template<typename... CascadeTypes>
 inline oob_recv_buffer<CascadeTypes...>::~oob_recv_buffer() {
-    stop();
+    // Remove from shared buffer set
+    oob_recv_buffer_set<CascadeTypes...>::get_instance().remove_buffer(this);
 }
 
+// NEW: Process available data once (called by shared thread)
 template<typename... CascadeTypes>
-inline void oob_recv_buffer<CascadeTypes...>::start(int cpu_core) {
-    if (receiving_thread.joinable()) return;
-    cpu_core_id = cpu_core;  // Store the core to pin to
-    stop_flag.store(0, std::memory_order_release);          
-    receiving_thread = std::thread(&oob_recv_buffer<CascadeTypes...>::run_recv, this);
-}
-
-template<typename... CascadeTypes>
-inline void oob_recv_buffer<CascadeTypes...>::stop() {
-    stop_flag.store(1, std::memory_order_release);    
-    if (receiving_thread.joinable()) receiving_thread.join();
-}
-
-
-
-// ============================================================================
-// run_recv with batch chunk processing and timestamp logging
-// ============================================================================
-template<typename... CascadeTypes>
-inline void oob_recv_buffer<CascadeTypes...>::run_recv() {
-    using namespace std::chrono_literals;
-
-    // Pin this receiving thread to specified core if requested
-    if (cpu_core_id >= 0) {
-        cpu_set_t cpuset;
-        CPU_ZERO(&cpuset);
-        CPU_SET(cpu_core_id, &cpuset);
-        int rc = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
-        if (rc != 0) {
-              // Log warning but continue - this is not critical for functionality
-            std::cerr << "[SENDER_THREAD] Failed to set CPU affinity to core " << cpu_core_id << ": " << strerror(rc) << std::endl;
-        } else {
-             std::cout << "[SENDER_THREAD] Pinned to core " << cpu_core_id << std::endl;
-        }
-    } else {
-         std::cout << "[SENDER_THREAD] Started without CPU pinning" << std::endl;
-    }
-
-    // Get volatile pointers ONCE before the loop
+inline bool oob_recv_buffer<CascadeTypes...>::process_once() {
     volatile uint64_t* rdma_head_ptr = reinterpret_cast<volatile uint64_t*>(head.load());
     volatile uint64_t* rdma_tail_ptr = reinterpret_cast<volatile uint64_t*>(tail.load());
-
-    std::cout << "[RECV_DEBUG] Starting NEW receive loop with batch processing, initial head=" << *rdma_head_ptr 
-              << ", tail=" << *rdma_tail_ptr << std::endl;
-
-    // Chunk tracking for timestamp logging (use member so it can be reset)
-    const uint64_t chunk_size = this->chunk_size; // programmable chunk size
-    const uint64_t expected_total_chunks = 10000;
-
-    while (stop_flag.load(std::memory_order_acquire) == 0) {
+    
+    if (*rdma_tail_ptr == *rdma_head_ptr) {
+        // No data available - reset oldest message time to now
+        oldest_message_arrival_time.store(std::chrono::steady_clock::now());
+        _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
+        _mm_mfence();
+        return false;
+    }
+    
+    // Update oldest message arrival time if this is the first message after empty
+    auto current_oldest = oldest_message_arrival_time.load();
+    if (current_oldest > std::chrono::steady_clock::now() - std::chrono::milliseconds(1)) {
+        // Buffer was recently empty, update with current time as first message arrival
+        oldest_message_arrival_time.store(std::chrono::steady_clock::now());
+    }
+    
+    uint64_t buffer_start = reinterpret_cast<uint64_t>(buff);
+    uint64_t capture_tail = *rdma_tail_ptr;
+    
+    // Calculate available data with wrap-around
+    uint64_t available_data;
+    if (capture_tail >= *rdma_head_ptr) {
+        available_data = capture_tail - *rdma_head_ptr;
+    } else {
+        available_data = ring_size - *rdma_head_ptr + capture_tail;
+    }
+    
+    uint64_t chunks_available = available_data / chunk_size;
+    if (chunks_available == 0) return false;
+    
+    // Prepare batch message descriptors
+    std::vector<MessageDescriptor> messages;
+    messages.reserve(chunks_available);
+    
+    // Handle wrap-around when collecting messages
+    uint64_t current_head_offset = *rdma_head_ptr;
+    uint64_t space_to_end = ring_size - current_head_offset;
+    uint64_t chunks_before_wrap = space_to_end / chunk_size;
+    uint64_t chunks_in_first_segment = std::min(chunks_available, chunks_before_wrap);
+    
+    // Collect messages before wrap
+    for (uint64_t i = 0; i < chunks_in_first_segment; ++i) {
+        uint64_t msg_offset = current_head_offset + i * chunk_size;
+        MessageDescriptor desc;
+        desc.data_ptr = reinterpret_cast<const void*>(buffer_start + msg_offset);
+        desc.size = chunk_size;
+        desc.sequence = this->total_chunks_received.load() + i;
+        desc.buffer_ptr = this;  // NEW: Embed buffer pointer
+        messages.push_back(desc);
         
-        
-        if (*rdma_tail_ptr != *rdma_head_ptr) {
-            uint64_t buffer_start = reinterpret_cast<uint64_t>(buff);
-            uint64_t available_data;
-
-            uint64_t capture_tail = *rdma_tail_ptr;
-            // No need to caputure local head as we are single writer
-            
-            // Calculate available data with wrap-around logic
-            if (capture_tail >= *rdma_head_ptr) {
-                // Normal case: tail is ahead of or equal to head
-                available_data = capture_tail - *rdma_head_ptr;
-            } else {
-                // Wrap case: tail has wrapped around, head hasn't
-                uint64_t space_to_end = ring_size - *rdma_head_ptr;
-                if (space_to_end >= chunk_size) {
-                    available_data = space_to_end;
-                } else {
-                    // Jump to front
-                    *rdma_head_ptr = 0;
-                    available_data = capture_tail - *rdma_head_ptr;
-                }
-            }
-            
-            // Calculate number of complete chunks available
-            uint64_t chunks_available = available_data / chunk_size;
-            
-            if (chunks_available == 0) {
-                // No complete chunks available - just pause and retry
-                _mm_pause();
-                continue;
-            }
-            
-            // LOOP 1: Log timestamps for all available chunks using correct TestData sequence numbers
-            uint64_t current_head_offset = *rdma_head_ptr;
-            TimestampLogger::log(0,*rdma_head_ptr, *rdma_tail_ptr);
-            for (uint64_t i = 0; i < chunks_available; ++i) {
-                // Calculate the correct chunk address, handling wrap-around
-                uint64_t chunk_offset = (current_head_offset + (i * chunk_size)) % ring_size;
-                const void* chunk_data = reinterpret_cast<const void*>(buffer_start + chunk_offset);
-                
-                // Read the actual sequence number from the TestData (first 8 bytes)
-                const uint64_t* sequence_ptr = reinterpret_cast<const uint64_t*>(chunk_data);
-                uint64_t actual_sequence = *sequence_ptr;
-                TimestampLogger::log(LOG_OOBWRITE_RECV, this->service_client.get_my_id(), actual_sequence);
-            }
-            uint64_t new_head = *rdma_head_ptr + chunk_size*chunks_available;
-            *rdma_head_ptr  = new_head;
-            _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
-            this->total_chunks_received.fetch_add(chunks_available);
-
-            
-            // LOOP 2: Now process each chunk
-            // for (uint64_t i = 0; i < chunks_available; ++i) {
-            //     uint64_t consume_size = chunk_size;
-                
-            //     // Deliver to subscriber if present
-            //     if (has_subscriber) {
-            //         if (subscription_mode == SubscriptionMode::ZERO_COPY_LOCK) {
-            //             if (zero_copy_callback) {
-            //                 zero_copy_callback(
-            //                     reinterpret_cast<const void*>(buffer_start + *rdma_head_ptr), 
-            //                     consume_size
-            //                 );
-            //             }
-            //         } else if (subscription_mode == SubscriptionMode::MEMORY_COPY) {
-            //             if (memory_copy_callback && dest_memory && consume_size <= memory_size) {
-            //                 std::memcpy(dest_memory, 
-            //                            reinterpret_cast<const void*>(buffer_start + *rdma_head_ptr), 
-            //                            consume_size);
-            //                 memory_copy_callback(dest_memory, consume_size);
-            //             }
-            //         }
-            //     }
-                
-            //     // Advance head for this chunk
-            //     uint64_t new_head = *rdma_head_ptr + consume_size;
-                
-            //     // Handle wrap-around if needed
-            //     if (new_head >= ring_size) {
-            //         new_head = consume_size;
-            //     }
-                
-            //     *rdma_head_ptr = new_head;
-                
-            //         // Increment chunk counter
-            //         this->total_chunks_received.fetch_add(1);
-                
-            //     // Print progress periodically
-            //     // if (this->total_chunks_received.load() % 1000 == 0) {
-            //     //     std::cout << "[RECV_PROGRESS] Received " << this->total_chunks_received.load()
-            //     //               << " / " << expected_total_chunks << " chunks" << std::endl;
-            //     // }
-            // }
-            
-            // Flush head cache line after all chunk updates
-            // _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
-            // _mm_mfence();
-
-            // // Notify sender of new head position via RDMA
-            // this->service_client.template oob_memwrite<typename std::tuple_element<0, std::tuple<CascadeTypes...>>::type>(
-            //     this->head_addr,
-            //     this->send_node,
-            //     this->head_r_key,
-            //     sizeof(uint64_t),
-            //     false,
-            //     reinterpret_cast<uint64_t>(rdma_head_ptr),
-            //     false,
-            //     false
-            // );
-            // run_head_updates(rdma_head_ptr);
-            shared_run_head_updates<CascadeTypes...>(rdma_head_ptr, this->head_addr, this->send_node, this->head_r_key, &this->service_client);
-            // Ensure RDMA head update is ordered and visible
-            // std::atomic_thread_fence(std::memory_order_release);
-            
-            // Check if we've received all expected chunks
-            if (this->total_chunks_received.load() >= expected_total_chunks) {
-                std::cout << "[RECV_COMPLETE] Received all " << this->total_chunks_received.load()
-                          << " chunks. Flushing timestamps..." << std::endl;
-                TimestampLogger::flush("recv_oob_fast_path_timestamp.dat");
-                std::cout << "[RECV_COMPLETE] Timestamp flush complete." << std::endl;
-            }
-            
-        } else {
-            // Flush tail cache line to see latest RDMA-updated value from sender
-            _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
-            _mm_mfence();
-            // Just pause when no data available (for minimum latency)
-            _mm_pause();
+        if (desc.size >= 8) {
+            const uint64_t* seq_ptr = reinterpret_cast<const uint64_t*>(desc.data_ptr);
+            TimestampLogger::log(LOG_OOBWRITE_RECV, this->service_client.get_my_id(), *seq_ptr);
         }
     }
     
-    // Final report on shutdown
-    // std::cout << "[RECV_SHUTDOWN] Total chunks received: " << this->total_chunks_received.load() << std::endl;
-    // std::string recv_filename = "recv_oob_fast_path_timestamp.dat";
-    //                 TimestampLogger::flush(recv_filename);
-                    // std::cout << "[RECV-ZERO-COPY] Flushed receive timestamps to " << recv_filename << std::endl;
+    // Collect messages after wrap
+    if (chunks_available > chunks_in_first_segment) {
+        uint64_t chunks_after_wrap = chunks_available - chunks_in_first_segment;
+        for (uint64_t i = 0; i < chunks_after_wrap; ++i) {
+            uint64_t msg_offset = i * chunk_size;
+            MessageDescriptor desc;
+            desc.data_ptr = reinterpret_cast<const void*>(buffer_start + msg_offset);
+            desc.size = chunk_size;
+            desc.sequence = this->total_chunks_received.load() + chunks_in_first_segment + i;
+            desc.buffer_ptr = this;  // NEW: Embed buffer pointer
+            messages.push_back(desc);
+            
+            if (desc.size >= 8) {
+                const uint64_t* seq_ptr = reinterpret_cast<const uint64_t*>(desc.data_ptr);
+                TimestampLogger::log(LOG_OOBWRITE_RECV, this->service_client.get_my_id(), *seq_ptr);
+            }
+        }
+    }
+    
+    // Update head pointer
+    uint64_t new_head = (*rdma_head_ptr + chunk_size * chunks_available);
+    if (new_head >= ring_size) new_head = new_head % ring_size;
+    *rdma_head_ptr = new_head;
+    _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
+    
+    this->total_chunks_received.fetch_add(chunks_available);
+    
+    // Deliver batch to subscriber
+    if (has_subscriber && subscription_mode == SubscriptionMode::ZERO_COPY_LOCK) {
+        if (zero_copy_batch_callback) {
+            zero_copy_batch_callback(messages);
+        }
+        // REMOVED: else if (zero_copy_callback) branch - we only support batch mode now
+    }
+    
+    // Notify sender
+    shared_run_head_updates<CascadeTypes...>(rdma_head_ptr, this->head_addr, this->send_node, this->head_r_key, &this->service_client);
+    
+    // Check completion
+    if (this->total_chunks_received.load() >= expected_total_chunks) {
+        std::cout << "[RECV_COMPLETE] Buffer received all " << this->total_chunks_received.load() << " chunks" << std::endl;
+        TimestampLogger::flush("recv_oob_fast_path_timestamp.dat");
+    }
+    
+    return true; // Processed data
 }
 
 // Subscriber Management Methods
 template<typename... CascadeTypes>
-inline void oob_recv_buffer<CascadeTypes...>::set_zero_copy_subscriber(const ZeroCopyCallback& callback) {
+inline void oob_recv_buffer<CascadeTypes...>::set_zero_copy_batch_subscriber(const ZeroCopyBatchCallback& callback) {
     std::lock_guard<std::mutex> lock(lock_mutex);
     subscription_mode = SubscriptionMode::ZERO_COPY_LOCK;
-    zero_copy_callback = callback;
+    zero_copy_batch_callback = callback;
     has_subscriber = true;
     
-    // Clear memory copy state
+    // Clear other modes
     memory_copy_callback = nullptr;
     dest_memory = nullptr;
     memory_size = 0;
@@ -859,9 +777,9 @@ inline void oob_recv_buffer<CascadeTypes...>::set_memory_copy_subscriber(void* d
     this->memory_size = memory_size;
     memory_copy_callback = callback;
     has_subscriber = true;
-    
-    // Clear zero-copy state
-    zero_copy_callback = nullptr;
+
+    // Clear other modes
+    zero_copy_batch_callback = nullptr;
     buffer_locked.store(false);
 }
 
@@ -871,8 +789,8 @@ inline void oob_recv_buffer<CascadeTypes...>::clear_subscriber() {
     has_subscriber = false;
     
     // Clear both modes
-    zero_copy_callback = nullptr;
     memory_copy_callback = nullptr;
+    zero_copy_batch_callback = nullptr;
     dest_memory = nullptr;
     memory_size = 0;
     buffer_locked.store(false);
@@ -881,6 +799,186 @@ inline void oob_recv_buffer<CascadeTypes...>::clear_subscriber() {
 template<typename... CascadeTypes>
 inline void oob_recv_buffer<CascadeTypes...>::reset_counters() {
     this->total_chunks_received.store(0);
+}
+
+// ---------- oob_recv_buffer_set ----------
+
+template<typename... CascadeTypes>
+inline oob_recv_buffer_set<CascadeTypes...>& oob_recv_buffer_set<CascadeTypes...>::get_instance() {
+    static oob_recv_buffer_set<CascadeTypes...> instance;
+    return instance;
+}
+
+template<typename... CascadeTypes>
+inline void oob_recv_buffer_set<CascadeTypes...>::add_buffer(oob_recv_buffer<CascadeTypes...>* buffer) {
+    std::lock_guard<std::mutex> lock(buffers_mutex);
+    buffers.insert(buffer);
+    std::cout << "[RECV_SET] Added buffer, total buffers: " << buffers.size() << std::endl;
+}
+
+template<typename... CascadeTypes>
+inline void oob_recv_buffer_set<CascadeTypes...>::remove_buffer(oob_recv_buffer<CascadeTypes...>* buffer) {
+    std::lock_guard<std::mutex> lock(buffers_mutex);
+    buffers.erase(buffer);
+    std::cout << "[RECV_SET] Removed buffer, total buffers: " << buffers.size() << std::endl;
+}
+
+template<typename... CascadeTypes>
+inline void oob_recv_buffer_set<CascadeTypes...>::start(int cpu_core, LoadBalancingStrategy strategy) {
+    if (recv_thread.joinable()) {
+        std::cout << "[RECV_SET] Thread already running, skipping start" << std::endl;
+        return;
+    }
+    
+    cpu_core_id = cpu_core;
+    lb_strategy = strategy;
+    runtime_lb_strategy.store(strategy);
+    stop_flag.store(false);
+    recv_thread = std::thread(&oob_recv_buffer_set<CascadeTypes...>::run_recv_loop, this);
+    
+    const char* strategy_name = 
+        (strategy == LoadBalancingStrategy::FAST_AS_ABLE) ? "FAST_AS_ABLE" :
+        (strategy == LoadBalancingStrategy::ROUND_ROBIN) ? "ROUND_ROBIN" : "AGE_FAIRNESS";
+    std::cout << "[RECV_SET] Started shared receive thread on core " << cpu_core_id 
+              << " with " << strategy_name << " load balancing" << std::endl;
+}
+
+template<typename... CascadeTypes>
+inline void oob_recv_buffer_set<CascadeTypes...>::set_load_balancing_strategy(LoadBalancingStrategy strategy) {
+    runtime_lb_strategy.store(strategy);
+    const char* strategy_name = 
+        (strategy == LoadBalancingStrategy::FAST_AS_ABLE) ? "FAST_AS_ABLE" :
+        (strategy == LoadBalancingStrategy::ROUND_ROBIN) ? "ROUND_ROBIN" : "AGE_FAIRNESS";
+    std::cout << "[RECV_SET] Switched to " << strategy_name << " load balancing" << std::endl;
+}
+
+template<typename... CascadeTypes>
+inline void oob_recv_buffer_set<CascadeTypes...>::run_recv_loop() {
+    // Pin to specified core
+    if (cpu_core_id >= 0) {
+        cpu_set_t cpuset;
+        CPU_ZERO(&cpuset);
+        CPU_SET(cpu_core_id, &cpuset);
+        pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+        std::cout << "[RECV_SET] Thread pinned to core " << cpu_core_id << std::endl;
+    }
+    
+    std::cout << "[RECV_SET] Starting shared receive loop" << std::endl;
+    
+    // Dispatch to appropriate strategy implementation
+    while (!stop_flag.load()) {
+        auto current_strategy = runtime_lb_strategy.load();
+        
+        switch (current_strategy) {
+            case LoadBalancingStrategy::FAST_AS_ABLE:
+                run_recv_loop_fast_as_able();
+                break;
+            case LoadBalancingStrategy::ROUND_ROBIN:
+                run_recv_loop_round_robin();
+                break;
+            case LoadBalancingStrategy::AGE_FAIRNESS:
+                run_recv_loop_age_fairness();
+                break;
+        }
+    }
+    
+    std::cout << "[RECV_SET] Shared receive loop stopped" << std::endl;
+}
+
+// Strategy 1: Fast as able - check all buffers as fast as possible
+template<typename... CascadeTypes>
+inline void oob_recv_buffer_set<CascadeTypes...>::run_recv_loop_fast_as_able() {
+    bool any_processed = false;
+    
+    std::lock_guard<std::mutex> lock(buffers_mutex);
+    for (auto* buffer : buffers) {
+        if (buffer->process_once()) {
+            any_processed = true;
+        }
+        
+        // Check if strategy changed
+        if (runtime_lb_strategy.load() != LoadBalancingStrategy::FAST_AS_ABLE || stop_flag.load()) {
+            return;
+        }
+    }
+    
+    if (!any_processed) {
+        _mm_pause();
+    }
+}
+
+// Strategy 2: Round-robin - check each buffer once per round
+template<typename... CascadeTypes>
+inline void oob_recv_buffer_set<CascadeTypes...>::run_recv_loop_round_robin() {
+    std::lock_guard<std::mutex> lock(buffers_mutex);
+    
+    if (buffers.empty()) {
+        _mm_pause();
+        return;
+    }
+    
+    // Convert set to vector for indexing
+    std::vector<oob_recv_buffer<CascadeTypes...>*> buffer_vec(buffers.begin(), buffers.end());
+    
+    // Process one buffer
+    size_t index = round_robin_index % buffer_vec.size();
+    buffer_vec[index]->process_once();
+    
+    // Advance to next buffer
+    round_robin_index = (round_robin_index + 1) % buffer_vec.size();
+    
+    // Check if strategy changed
+    if (runtime_lb_strategy.load() != LoadBalancingStrategy::ROUND_ROBIN || stop_flag.load()) {
+        return;
+    }
+}
+
+// Strategy 3: Age fairness - prioritize buffers with oldest unprocessed messages
+template<typename... CascadeTypes>
+inline void oob_recv_buffer_set<CascadeTypes...>::run_recv_loop_age_fairness() {
+    std::vector<BufferAgeInfo> buffer_ages;
+    
+    {
+        std::lock_guard<std::mutex> lock(buffers_mutex);
+        
+        if (buffers.empty()) {
+            _mm_pause();
+            return;
+        }
+        
+        // Collect age information for all buffers
+        for (auto* buffer : buffers) {
+            BufferAgeInfo info;
+            info.buffer = buffer;
+            info.oldest_message_time = buffer->get_oldest_message_time();
+            info.messages_waiting = buffer->get_messages_waiting();
+            
+            // Only consider buffers with waiting messages
+            if (info.messages_waiting > 0) {
+                buffer_ages.push_back(info);
+            }
+        }
+    }
+    
+    if (buffer_ages.empty()) {
+        _mm_pause();
+        return;
+    }
+    
+    // Sort by oldest message time (oldest first)
+    std::sort(buffer_ages.begin(), buffer_ages.end(), 
+              [](const BufferAgeInfo& a, const BufferAgeInfo& b) {
+                  return a.oldest_message_time < b.oldest_message_time;
+              });
+    
+    // Process the buffer with the oldest message
+    // This minimizes the maximum age across all buffers
+    buffer_ages[0].buffer->process_once();
+    
+    // Check if strategy changed
+    if (runtime_lb_strategy.load() != LoadBalancingStrategy::AGE_FAIRNESS || stop_flag.load()) {
+        return;
+    }
 }
 
 } // namespace cascade

@@ -42,7 +42,8 @@ private:
     
     // State: OOB Buffer pointers
     std::unique_ptr<oob_send_buffer<VolatileCascadeStoreWithStringKey, PersistentCascadeStoreWithStringKey, TriggerCascadeNoStoreWithStringKey>> send_buf;
-    std::unique_ptr<oob_recv_buffer<VolatileCascadeStoreWithStringKey, PersistentCascadeStoreWithStringKey, TriggerCascadeNoStoreWithStringKey>> recv_buf;
+    // CHANGED: Use map to store multiple receive buffers (one per sender node)
+    std::unordered_map<uint32_t, std::unique_ptr<oob_recv_buffer<VolatileCascadeStoreWithStringKey, PersistentCascadeStoreWithStringKey, TriggerCascadeNoStoreWithStringKey>>> recv_bufs;
     
     // Receiver tracking state (moved from static locals to member variables)
     std::atomic<int> received_count{0};
@@ -189,7 +190,9 @@ public:
             try {
                 // Create recv buffer in thread pinned to core 11 (same as run_recv)
                 // This ensures NUMA first-touch on the correct node
-                std::thread create_thread([this, &client, send_node, ring_size]() {
+                std::unique_ptr<oob_recv_buffer<VolatileCascadeStoreWithStringKey, PersistentCascadeStoreWithStringKey, TriggerCascadeNoStoreWithStringKey>> new_recv_buf;
+                
+                std::thread create_thread([&new_recv_buf, &client, send_node, ring_size, chunk_size]() {
                     // Pin to core 11
                     cpu_set_t set;
                     CPU_ZERO(&set);
@@ -199,21 +202,21 @@ public:
                     std::cout << "[PREPARE_RECV] Buffer creation thread pinned to core 11" << std::endl;
                     
                     // Create the buffer with programmable chunk size (this does allocation, mlock, and page warming)
-                    recv_buf = client.oob_recv_buff_create(send_node, MY_DESC, ring_size, chunk_size);
+                    new_recv_buf = client.oob_recv_buff_create(send_node, MY_DESC, ring_size, chunk_size);
                     
                     std::cout << "[PREPARE_RECV] Recv buffer allocated with " << chunk_size << " byte chunks on NUMA node of core 11" << std::endl;
                 });
                 
                 create_thread.join();
                 
-                if (!recv_buf) {
+                if (!new_recv_buf) {
                     std::cout << "[ERROR] Failed to create OOB recv buffer!" << std::endl;
                     return;
                 }
                 
-                std::cout << "[PREPARE_RECV] OOB recv buffer created successfully" << std::endl;
+                std::cout << "[PREPARE_RECV] OOB recv buffer created successfully for sender node " << send_node << std::endl;
                 
-                auto recv_info = client.oob_recv_get_info(recv_buf);
+                auto recv_info = client.oob_recv_get_info(new_recv_buf);
                 
                 // Extract the structured info
                 Buffer buffer_info = recv_info.first;
@@ -238,6 +241,11 @@ public:
                 client.put_and_forget<VolatileCascadeStoreWithStringKey>(obj, 0, send_node);
                 
                 std::cout << "[PREPARE_RECV] Sent connection info back to sender node " << send_node << std::endl;
+                
+                // Store the buffer in the map BEFORE sending connection info
+                recv_bufs[send_node] = std::move(new_recv_buf);
+                std::cout << "[PREPARE_RECV] Stored recv buffer for sender node " << send_node 
+                          << " (total buffers: " << recv_bufs.size() << ")" << std::endl;
                 
             } catch (const std::exception& e) {
                 std::cout << "[ERROR] Exception in prepare_recv: " << e.what() << std::endl;
@@ -313,8 +321,10 @@ public:
         }
         else if (tokens[1] == "start_recv") {
             // Start the receive buffer and begin receiving
-            if (!recv_buf) {
-                std::cout << "[ERROR] No recv buffer to start!" << std::endl;
+            
+            // CHANGED: Check if we have any recv buffers at all
+            if (recv_bufs.empty()) {
+                std::cout << "[ERROR] No recv buffers created!" << std::endl;
                 return;
             }
             
@@ -337,9 +347,19 @@ public:
                 return;
             }
             
+            // CHANGED: Look up the correct buffer for this sender node
+            uint32_t sender_node = payload.dest_node;
+            auto it = recv_bufs.find(sender_node);
+            if (it == recv_bufs.end()) {
+                std::cout << "[ERROR] No recv buffer found for sender node " << sender_node << "!" << std::endl;
+                return;
+            }
+            
+            auto& recv_buf = it->second;  // Reference to the unique_ptr in the map
+            
             std::cout << "[START_RECV] Node " << client.get_my_id() 
-                      << " received head info from SENDER node " << payload.dest_node << std::endl;
-            std::cout << "[START_RECV] This buffer will send head updates BACK TO node " << payload.dest_node << std::endl;
+                      << " received head info from SENDER node " << sender_node << std::endl;
+            std::cout << "[START_RECV] This buffer will send head updates BACK TO node " << sender_node << std::endl;
             
             try {
                 // Store client pointer for use in callbacks
@@ -604,15 +624,17 @@ private:
                 TimestampLogger::flush(recv_filename);
                 std::cout << "[RECV-BATCH] Flushed receive timestamps to " << recv_filename << std::endl;
                 
-                // Reset for next run
-                if (recv_buf) {
-                    recv_buf->reset_counters();
+                // Reset for next run - reset ALL buffers
+                for (auto& [node_id, buf] : recv_bufs) {
+                    if (buf) {
+                        buf->reset_counters();
+                    }
                 }
                 received_count.store(0);
                 total_messages_processed.store(0);
                 total_batches_processed.store(0);
                 recv_timer_started = false;
-                std::cout << "[RECV-RESET] Counters reset, ready for next run" << std::endl;
+                std::cout << "[RECV-RESET] Counters reset for all buffers, ready for next run" << std::endl;
             }
         } catch (const std::exception& e) {
             std::cout << "[ERROR] Exception in process_received_batch_zero_copy: " << e.what() << std::endl;
@@ -667,8 +689,10 @@ private:
                     std::cout << "[RECV-ZERO-COPY] Flushed receive timestamps to " << recv_filename << std::endl;
                     
                     // RESET mechanism: Clear counters and resume timestamp logging for next run
-                    if (recv_buf) {
-                        recv_buf->reset_counters();
+                    for (auto& [node_id, buf] : recv_bufs) {
+                        if (buf) {
+                            buf->reset_counters();
+                        }
                     }
                     received_count.store(0);
                     recv_timer_started = false;
@@ -713,8 +737,12 @@ private:
                     TimestampLogger::flush("recv_oob_fast_path_timestamp.dat");
                     std::cout << "[RECV] Flushed receive timestamps" << std::endl;
                     
-                    // Clear subscriber when done
-                    recv_buf->clear_subscriber();
+                    // Clear subscriber when done - clear ALL buffers
+                    for (auto& [node_id, buf] : recv_bufs) {
+                        if (buf) {
+                            buf->clear_subscriber();
+                        }
+                    }
                 }
             } else {
                 std::cout << "[RECV] Warning: Received data too small (" << size 
@@ -727,28 +755,39 @@ private:
     
     // Hot-swap methods for switching subscription modes
     void switch_to_batch_zero_copy_mode(ServiceClient<VolatileCascadeStoreWithStringKey, PersistentCascadeStoreWithStringKey, TriggerCascadeNoStoreWithStringKey>& client) {
-        std::cout << "[SWITCH] Switching to zero-copy batch mode" << std::endl;
-        recv_buf->set_zero_copy_batch_subscriber(
-            [this](const std::vector<typename oob_recv_buffer<VolatileCascadeStoreWithStringKey, 
-                                                              PersistentCascadeStoreWithStringKey, 
-                                                              TriggerCascadeNoStoreWithStringKey>::MessageDescriptor>& messages) {
-                this->process_received_batch_zero_copy(messages);
+        std::cout << "[SWITCH] Switching to zero-copy batch mode for all buffers" << std::endl;
+        
+        // Apply to ALL receive buffers
+        for (auto& [node_id, buf] : recv_bufs) {
+            if (buf) {
+                buf->set_zero_copy_batch_subscriber(
+                    [this](const std::vector<typename oob_recv_buffer<VolatileCascadeStoreWithStringKey, 
+                                                                      PersistentCascadeStoreWithStringKey, 
+                                                                      TriggerCascadeNoStoreWithStringKey>::MessageDescriptor>& messages) {
+                        this->process_received_batch_zero_copy(messages);
+                    }
+                );
             }
-        );
+        }
     }
     
     void switch_to_memory_copy_mode(ServiceClient<VolatileCascadeStoreWithStringKey, PersistentCascadeStoreWithStringKey, TriggerCascadeNoStoreWithStringKey>& client) {
-        std::cout << "[SWITCH] Switching to memory copy mode" << std::endl;
+        std::cout << "[SWITCH] Switching to memory copy mode for all buffers" << std::endl;
         
         // Allocate memory buffer for copying (should be at least as large as max message)
         static std::vector<uint8_t> copy_buffer(64 * 1024); // 64KB buffer
         
-        recv_buf->set_memory_copy_subscriber(
-            copy_buffer.data(), 
-            copy_buffer.size(),
-            [this, &client](const void* data, size_t size) {
-                this->process_received_data_memory_copy(client, data, size);
-            });
+        // Apply to ALL receive buffers
+        for (auto& [node_id, buf] : recv_bufs) {
+            if (buf) {
+                buf->set_memory_copy_subscriber(
+                    copy_buffer.data(), 
+                    copy_buffer.size(),
+                    [this, &client](const void* data, size_t size) {
+                        this->process_received_data_memory_copy(client, data, size);
+                    });
+            }
+        }
     }
     static std::shared_ptr<OffCriticalDataPathObserver> ocdpo_ptr;
 public:

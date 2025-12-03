@@ -743,9 +743,15 @@ inline bool oob_recv_buffer<CascadeTypes...>::process_once() {
     // STEP 2: Ensure callback completion is visible before freeing space
     std::atomic_thread_fence(std::memory_order_seq_cst);
     
-    // STEP 3: NOW update head pointer (frees the space)
-    uint64_t new_head = (capture_head + chunk_size * chunks_available);
-    if (new_head >= ring_size) new_head = new_head % ring_size;
+    // STEP 3: NOW update head pointer (frees the space) - FIXED wrap-around logic
+    uint64_t new_head;
+    if (capture_head + chunk_size * chunks_available > ring_size) {
+        // Wrap around to beginning
+        new_head = (capture_head + chunk_size * chunks_available) - ring_size;
+    } else {
+        // Normal case: just advance
+        new_head = capture_head + chunk_size * chunks_available;
+    }
     *rdma_head_ptr = new_head;
     
     // Update statistics

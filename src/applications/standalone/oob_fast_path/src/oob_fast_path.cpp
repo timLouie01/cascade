@@ -670,118 +670,6 @@ private:
         }
     }
     
-    // Zero-copy lock mode: Direct access with lock/release
-    void process_received_data_zero_copy(const void* data, size_t size) {
-        try {
-            // Start timer on first message
-            if (!recv_timer_started) {
-                recv_start_time = std::chrono::high_resolution_clock::now();
-                recv_timer_started = true;
-            }
-            
-            // Process the received data directly from ring buffer (zero-copy)
-            if (size >= sizeof(TestData)) {
-                const TestData* test_data = reinterpret_cast<const TestData*>(data);
-                
-                int count = ++received_count;  // Atomic increment
-                
-                // Payload Process Timestamp
-                // if (client_ptr) {
-                //     TimestampLogger::log(LOG_OOBWRITE_RECV, client_ptr->get_my_id(), test_data->sequence_number);
-                // }
-                
-                // Uncomment for detailed logging:
-                // std::cout << "[RECV-ZERO-COPY] Received message " << test_data->sequence_number 
-                //           << ": " << test_data->message << " (count: " << count << ")" << std::endl;
-                
-                // Progress updates every 1000 messages
-                // if (count % 100 == 0) {
-                //     std::cout << "[RECV-ZERO-COPY] Progress: " << count 
-                //               << "/" << expected_messages << " messages received" << std::endl;
-                // }
-                
-                // Check if we've received all expected messages
-                if (count >= expected_messages) {
-                    auto end_time = std::chrono::high_resolution_clock::now();
-                    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-                        end_time - recv_start_time);
-                    
-                    std::cout << "[RECV-ZERO-COPY] Completed receiving " << count 
-                              << " messages in " << duration.count() << " ms" << std::endl;
-                    
-                    // Small delay to ensure all log entries are queued
-                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-                    
-                    // Create filename with static sleep time
-                    std::string recv_filename = "recv_oob_fast_path_sleep" + std::to_string(SLEEP_TIME_US) + "us_timestamp.dat";
-                    TimestampLogger::flush(recv_filename);
-                    std::cout << "[RECV-ZERO-COPY] Flushed receive timestamps to " << recv_filename << std::endl;
-                    
-                    // RESET mechanism: Clear counters and resume timestamp logging for next run
-                    for (auto& [node_id, buf] : recv_bufs) {
-                        if (buf) {
-                            buf->reset_counters();
-                        }
-                    }
-                    received_count.store(0);
-                    recv_timer_started = false;
-                    std::cout << "[RECV-RESET] Counters reset, ready for next run" << std::endl;
-                }
-            } else {
-                std::cout << "[RECV-ZERO-COPY] Warning: Received data too small (" << size 
-                          << " bytes), expected at least " << sizeof(TestData) << " bytes" << std::endl;
-            }
-        } catch (const std::exception& e) {
-            std::cout << "[ERROR] Exception in process_received_data_zero_copy: " << e.what() << std::endl;
-        }
-    }
-    
-    // Memory copy mode: Data copied to our buffer
-    void process_received_data_memory_copy(ServiceClient<VolatileCascadeStoreWithStringKey, PersistentCascadeStoreWithStringKey, TriggerCascadeNoStoreWithStringKey>& client, 
-                                          const void* data, size_t size) {
-        static int received_count = 0;
-        static const int expected_messages = 1000;
-        
-        try {
-            // Process the received data
-            if (size >= sizeof(TestData)) {
-                const TestData* test_data = reinterpret_cast<const TestData*>(data);
-                
-                received_count++;
-                
-                // Log receive timestamp
-                TimestampLogger::log(LOG_OOBWRITE_RECV, client.get_my_id(), test_data->sequence_number);
-                
-                std::cout << "[RECV] Received message " << test_data->sequence_number 
-                          << ": " << test_data->message << " (size: " << size << ")" << std::endl;
-                
-                // Every 100th message, print progress
-                if (received_count % 100 == 0) {
-                    std::cout << "[RECV] Progress: " << received_count 
-                              << "/" << expected_messages << " messages received" << std::endl;
-                }
-                
-                // Check if we've received all expected messages
-                if (received_count >= expected_messages) {
-                    TimestampLogger::flush("recv_oob_fast_path_timestamp.dat");
-                    std::cout << "[RECV] Flushed receive timestamps" << std::endl;
-                    
-                    // Clear subscriber when done - clear ALL buffers
-                    for (auto& [node_id, buf] : recv_bufs) {
-                        if (buf) {
-                            buf->clear_subscriber();
-                        }
-                    }
-                }
-            } else {
-                std::cout << "[RECV] Warning: Received data too small (" << size 
-                          << " bytes), expected at least " << sizeof(TestData) << " bytes" << std::endl;
-            }
-        } catch (const std::exception& e) {
-            std::cout << "[ERROR] Exception in process_received_data: " << e.what() << std::endl;
-        }
-    }
-    
     // Hot-swap methods for switching subscription modes
     void switch_to_batch_zero_copy_mode(ServiceClient<VolatileCascadeStoreWithStringKey, PersistentCascadeStoreWithStringKey, TriggerCascadeNoStoreWithStringKey>& client) {
         std::cout << "[SWITCH] Switching to zero-copy batch mode for all buffers" << std::endl;
@@ -806,18 +694,11 @@ private:
         // Allocate memory buffer for copying (should be at least as large as max message)
         static std::vector<uint8_t> copy_buffer(64 * 1024); // 64KB buffer
         
-        // Apply to ALL receive buffers
-        for (auto& [node_id, buf] : recv_bufs) {
-            if (buf) {
-                buf->set_memory_copy_subscriber(
-                    copy_buffer.data(), 
-                    copy_buffer.size(),
-                    [this, &client](const void* data, size_t size) {
-                        this->process_received_data_memory_copy(client, data, size);
-                    });
-            }
-        }
+        // Note: Memory copy mode not fully implemented for batch processing
+        // Would need to create a batch memory copy callback
+        std::cerr << "[ERROR] Memory copy mode not implemented for multi-sender setup" << std::endl;
     }
+    
     static std::shared_ptr<OffCriticalDataPathObserver> ocdpo_ptr;
 public:
     static void initialize() {

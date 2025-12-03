@@ -54,7 +54,8 @@ private:
     ServiceClientType* client_ptr = nullptr;
     
     // Configuration for sending data
-    uint32_t sleep_time_us = 0; // Sleep time between consecutive writes
+    static constexpr uint32_t SLEEP_TIME_US = 200; // Static 200us sleep time
+    uint32_t dest_node_id = 1; // Destination node ID (configurable via payload)
     
     // Data structure for sending meaningful data
     struct TestData {
@@ -105,25 +106,24 @@ public:
             // Sender - prepare to send data
             const uint64_t ring_size = 64 * 1024; // 64KB ring buffer
             const uint64_t chunk_size = 16 * 1024; // NEW: 8KB programmable chunk size (was 5KB)
-            uint32_t dest_node = 1; // static destination node
             
-            // Extract sleep time from payload
-            uint32_t sleep_time_us = 0; // default no sleep
+            // Extract destination node ID from payload
+            uint32_t dest_node = 1; // default destination node
             
             if (value_ptr) {
                 const ObjectWithStringKey* object = dynamic_cast<const ObjectWithStringKey*>(value_ptr);
                 if (object && object->blob.size > 0) {
-                    // Parse as string: just the sleep time in microseconds
+                    // Parse as string: destination node ID
                     std::string payload_str(reinterpret_cast<const char*>(object->blob.bytes), object->blob.size);
-                    sleep_time_us = std::stoul(payload_str);
+                    dest_node = std::stoul(payload_str);
                 }
             }
             
             std::cout << "[PREPARE_SEND] Creating OOB send buffer for node " << dest_node 
-                      << " with sleep time " << sleep_time_us << "us (creation pinned to core 10 for NUMA first-touch)" << std::endl;
+                      << " with sleep time " << SLEEP_TIME_US << "us (creation pinned to core 10 for NUMA first-touch)" << std::endl;
             
-            // Store sleep time for later use in sending and logging
-            this->sleep_time_us = sleep_time_us;
+            // Store destination node for later use
+            this->dest_node_id = dest_node;
             
             try {
                 // Create send buffer in thread pinned to core 10 (same as run_send)
@@ -152,14 +152,14 @@ public:
                 
                 std::cout << "[PREPARE_SEND] OOB send buffer created successfully" << std::endl;
                 
-                // Notify the destination node to prepare its receive buffer with sleep time
+                // Notify the destination node to prepare its receive buffer
                 uint32_t my_node_id = client.get_my_id();
-                std::string sleep_time_str = std::to_string(sleep_time_us);
-                Blob dest_blob(reinterpret_cast<const uint8_t*>(sleep_time_str.c_str()), sleep_time_str.length());
+                std::string sender_node_str = std::to_string(my_node_id);
+                Blob dest_blob(reinterpret_cast<const uint8_t*>(sender_node_str.c_str()), sender_node_str.length());
                 ObjectWithStringKey obj("oob_fp/prepare_recv", dest_blob);
                 client.put_and_forget<VolatileCascadeStoreWithStringKey>(obj, 0, dest_node);
                 
-                std::cout << "[PREPARE_SEND] Notified node " << dest_node << " to prepare receive buffer with sleep time " << sleep_time_us << "us" << std::endl;
+                std::cout << "[PREPARE_SEND] Notified node " << dest_node << " to prepare receive buffer (static sleep time " << SLEEP_TIME_US << "us)" << std::endl;
                 
             } catch (const std::exception& e) {
                 std::cout << "[ERROR] Exception in prepare_send: " << e.what() << std::endl;
@@ -169,25 +169,21 @@ public:
             // Receiver - prepare to receive data
             const uint64_t ring_size = 64 * 1024; // 64KB ring buffer
             const uint64_t chunk_size = 16 * 1024; // NEW: 8KB programmable chunk size (was 5KB)
-            uint32_t send_node = 0; // static sender node
             
-            // Extract sleep time from payload
-            uint32_t sleep_time_us = 0; // default no sleep
+            // Extract sender node ID from payload
+            uint32_t send_node = 0; // default sender node
             
             if (value_ptr) {
                 const ObjectWithStringKey* object = dynamic_cast<const ObjectWithStringKey*>(value_ptr);
                 if (object && object->blob.size > 0) {
-                    // Parse as string: sleep time in microseconds
+                    // Parse as string: sender node ID
                     std::string payload_str(reinterpret_cast<const char*>(object->blob.bytes), object->blob.size);
-                    sleep_time_us = std::stoul(payload_str);
+                    send_node = std::stoul(payload_str);
                 }
             }
             
-            // Store sleep time for later use in logging
-            this->sleep_time_us = sleep_time_us;
-            
             std::cout << "[PREPARE_RECV] Creating OOB recv buffer for node " << send_node 
-                      << " with sleep time " << sleep_time_us << "us (creation pinned to core 11 for NUMA first-touch)" << std::endl;
+                      << " with sleep time " << SLEEP_TIME_US << "us (creation pinned to core 11 for NUMA first-touch)" << std::endl;
             
             try {
                 // Create recv buffer in thread pinned to core 11 (same as run_recv)
@@ -434,28 +430,29 @@ public:
             }
         }
         else if (tokens[1] == "restart_send") {
-            // Restart sending with new sleep time (reuse existing buffers)
+            // Restart sending with new destination node ID (reuse existing buffers)
             if (!send_buf) {
                 std::cout << "[ERROR] No send buffer available! Must call prepare_send first." << std::endl;
                 return;
             }
             
-            // Extract new sleep time from payload
-            uint32_t new_sleep_time_us = 0; // default no sleep
+            // Extract new destination node ID from payload
+            uint32_t new_dest_node = 1; // default destination node
             
             if (value_ptr) {
                 const ObjectWithStringKey* object = dynamic_cast<const ObjectWithStringKey*>(value_ptr);
                 if (object && object->blob.size > 0) {
-                    // Parse as string: sleep time in microseconds
+                    // Parse as string: destination node ID
                     std::string payload_str(reinterpret_cast<const char*>(object->blob.bytes), object->blob.size);
-                    new_sleep_time_us = std::stoul(payload_str);
+                    new_dest_node = std::stoul(payload_str);
                 }
             }
             
-            // Update sleep time for this run
-            this->sleep_time_us = new_sleep_time_us;
+            // Update destination node ID for this run
+            this->dest_node_id = new_dest_node;
             
-            std::cout << "[RESTART_SEND] Restarting send operation with sleep time " << new_sleep_time_us << "us" << std::endl;
+            std::cout << "[RESTART_SEND] Restarting send operation to node " << new_dest_node 
+                      << " with sleep time " << SLEEP_TIME_US << "us" << std::endl;
             
             try {
                 // Start sending data directly (buffers already connected)
@@ -488,24 +485,18 @@ public:
 
 private:
     void start_sending_data(ServiceClient<VolatileCascadeStoreWithStringKey, PersistentCascadeStoreWithStringKey, TriggerCascadeNoStoreWithStringKey>& client) {
-        std::cout << "[SEND_THREAD] Starting data transmission..." << std::endl;
+        std::cout << "[SEND_THREAD] Starting data transmission with " << SLEEP_TIME_US << "us sleep..." << std::endl;
         
         const int num_messages = 10000;
         const auto start_time = std::chrono::high_resolution_clock::now();
         
-        // For minimum latency: Remove artificial delays, rely on natural backpressure
-        // The can_fit() check will naturally pace the sender when buffer fills
-        
         for (int i = 0; i < num_messages; ++i) {
-            // Apply configured sleep time between consecutive writes if specified
-            if (sleep_time_us > 0){
-                auto busy_start = std::chrono::high_resolution_clock::now();
-                auto target_duration = std::chrono::microseconds(sleep_time_us);
-                    while (std::chrono::high_resolution_clock::now() - busy_start < target_duration) {
-                        _mm_pause(); // CPU hint for spin-wait loops
-                    }
+            // Apply static 200us sleep time between consecutive writes
+            auto busy_start = std::chrono::high_resolution_clock::now();
+            auto target_duration = std::chrono::microseconds(SLEEP_TIME_US);
+            while (std::chrono::high_resolution_clock::now() - busy_start < target_duration) {
+                _mm_pause(); // CPU hint for spin-wait loops
             }
-            
             
             try {
                 // Wait for space first
@@ -554,8 +545,8 @@ private:
         }
         std::cout << "[SEND_THREAD] Completed sending " << num_messages << std::endl;
         
-        // Create filename with sleep time included
-        std::string send_filename = "send_oob_fast_path_sleep" + std::to_string(sleep_time_us) + "us_timestamp.dat";
+        // Create filename with static sleep time and destination node
+        std::string send_filename = "send_oob_fast_path_sleep" + std::to_string(SLEEP_TIME_US) + "us_node" + std::to_string(dest_node_id) + "_timestamp.dat";
         TimestampLogger::flush(send_filename);
         const int break_ms = 1000;  
         std::this_thread::sleep_for(std::chrono::milliseconds(break_ms));
@@ -608,7 +599,7 @@ private:
                 
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
                 
-                std::string recv_filename = "recv_oob_fast_path_sleep" + std::to_string(sleep_time_us) + "us_timestamp.dat";
+                std::string recv_filename = "recv_oob_fast_path_sleep" + std::to_string(SLEEP_TIME_US) + "us_timestamp.dat";
                 TimestampLogger::flush(recv_filename);
                 std::cout << "[RECV-BATCH] Flushed receive timestamps to " << recv_filename << std::endl;
                 
@@ -669,8 +660,8 @@ private:
                     // Small delay to ensure all log entries are queued
                     std::this_thread::sleep_for(std::chrono::milliseconds(50));
                     
-                    // Create filename with sleep time included
-                    std::string recv_filename = "recv_oob_fast_path_sleep" + std::to_string(sleep_time_us) + "us_timestamp.dat";
+                    // Create filename with static sleep time
+                    std::string recv_filename = "recv_oob_fast_path_sleep" + std::to_string(SLEEP_TIME_US) + "us_timestamp.dat";
                     TimestampLogger::flush(recv_filename);
                     std::cout << "[RECV-ZERO-COPY] Flushed receive timestamps to " << recv_filename << std::endl;
                     

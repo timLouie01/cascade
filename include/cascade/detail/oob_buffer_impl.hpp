@@ -653,11 +653,13 @@ inline bool oob_recv_buffer<CascadeTypes...>::process_once() {
     volatile uint64_t* rdma_head_ptr = reinterpret_cast<volatile uint64_t*>(head.load());
     volatile uint64_t* rdma_tail_ptr = reinterpret_cast<volatile uint64_t*>(tail.load());
     
+    // Flush tail cache to see latest RDMA updates from sender
+    _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
+    _mm_mfence();
+    
     if (*rdma_tail_ptr == *rdma_head_ptr) {
         // No data available - reset oldest message time to now
         oldest_message_arrival_time.store(std::chrono::steady_clock::now());
-        _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_tail_ptr)));
-        _mm_mfence();
         return false;
     }
     
@@ -670,13 +672,14 @@ inline bool oob_recv_buffer<CascadeTypes...>::process_once() {
     
     uint64_t buffer_start = reinterpret_cast<uint64_t>(buff);
     uint64_t capture_tail = *rdma_tail_ptr;
+    uint64_t capture_head = *rdma_head_ptr;
     
     // Calculate available data with wrap-around
     uint64_t available_data;
-    if (capture_tail >= *rdma_head_ptr) {
-        available_data = capture_tail - *rdma_head_ptr;
+    if (capture_tail >= capture_head) {
+        available_data = capture_tail - capture_head;
     } else {
-        available_data = ring_size - *rdma_head_ptr + capture_tail;
+        available_data = ring_size - capture_head + capture_tail;
     }
     
     uint64_t chunks_available = available_data / chunk_size;
@@ -687,7 +690,7 @@ inline bool oob_recv_buffer<CascadeTypes...>::process_once() {
     messages.reserve(chunks_available);
     
     // Handle wrap-around when collecting messages
-    uint64_t current_head_offset = *rdma_head_ptr;
+    uint64_t current_head_offset = capture_head;
     uint64_t space_to_end = ring_size - current_head_offset;
     uint64_t chunks_before_wrap = space_to_end / chunk_size;
     uint64_t chunks_in_first_segment = std::min(chunks_available, chunks_before_wrap);
@@ -699,7 +702,7 @@ inline bool oob_recv_buffer<CascadeTypes...>::process_once() {
         desc.data_ptr = reinterpret_cast<const void*>(buffer_start + msg_offset);
         desc.size = chunk_size;
         desc.sequence = this->total_chunks_received.load() + i;
-        desc.buffer_ptr = this;  // NEW: Embed buffer pointer
+        desc.buffer_ptr = this;
         messages.push_back(desc);
         
         if (desc.size >= 8) {
@@ -717,7 +720,7 @@ inline bool oob_recv_buffer<CascadeTypes...>::process_once() {
             desc.data_ptr = reinterpret_cast<const void*>(buffer_start + msg_offset);
             desc.size = chunk_size;
             desc.sequence = this->total_chunks_received.load() + chunks_in_first_segment + i;
-            desc.buffer_ptr = this;  // NEW: Embed buffer pointer
+            desc.buffer_ptr = this;
             messages.push_back(desc);
             
             if (desc.size >= 8) {
@@ -727,24 +730,36 @@ inline bool oob_recv_buffer<CascadeTypes...>::process_once() {
         }
     }
     
-    // Update head pointer
-    uint64_t new_head = (*rdma_head_ptr + chunk_size * chunks_available);
-    if (new_head >= ring_size) new_head = new_head % ring_size;
-    *rdma_head_ptr = new_head;
-    _mm_clflush(const_cast<const void*>(static_cast<volatile void*>(rdma_head_ptr)));
-    
-    this->total_chunks_received.fetch_add(chunks_available);
-    
-    // Deliver batch to subscriber
+    // STEP 1: Deliver batch to subscriber FIRST (while data is still protected)
+    // The callback can safely read the data because head hasn't been updated yet
     if (has_subscriber && subscription_mode == SubscriptionMode::ZERO_COPY_LOCK) {
         if (zero_copy_batch_callback) {
+            // User callback processes data (can take arbitrary time)
+            // During this time, sender CANNOT overwrite because head is not updated
             zero_copy_batch_callback(messages);
         }
-        // REMOVED: else if (zero_copy_callback) branch - we only support batch mode now
     }
     
-    // Notify sender
-    shared_run_head_updates<CascadeTypes...>(rdma_head_ptr, this->head_addr, this->send_node, this->head_r_key, &this->service_client);
+    // STEP 2: Ensure callback completion is visible before freeing space
+    std::atomic_thread_fence(std::memory_order_seq_cst);
+    
+    // STEP 3: NOW update head pointer (frees the space)
+    uint64_t new_head = (capture_head + chunk_size * chunks_available);
+    if (new_head >= ring_size) new_head = new_head % ring_size;
+    *rdma_head_ptr = new_head;
+    
+    // Update statistics
+    this->total_chunks_received.fetch_add(chunks_available);
+    
+    // STEP 4: Asynchronously notify sender of freed space (original behavior)
+    // This queues the RDMA update on the shared head update thread (core 9)
+    shared_run_head_updates<CascadeTypes...>(
+        rdma_head_ptr, 
+        this->head_addr, 
+        this->send_node, 
+        this->head_r_key, 
+        &this->service_client
+    );
     
     // Check completion
     if (this->total_chunks_received.load() >= expected_total_chunks) {

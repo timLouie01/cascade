@@ -402,7 +402,7 @@ public:
                 using LBStrategy = oob_recv_buffer_set<VolatileCascadeStoreWithStringKey, 
                                                        PersistentCascadeStoreWithStringKey, 
                                                        TriggerCascadeNoStoreWithStringKey>::LoadBalancingStrategy;
-                buffer_set.start(11, LBStrategy::FAST_AS_ABLE);  // Change strategy here
+                buffer_set.start(11, LBStrategy::AGE_FAIRNESS);  // Change strategy here
                 std::cout << "[START_RECV] Called buffer_set.start() (thread-safe, idempotent)" << std::endl;
                 
                 // STEP 5: Send acknowledgment back to sender to start RDMA thread

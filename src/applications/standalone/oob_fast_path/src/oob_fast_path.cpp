@@ -45,11 +45,17 @@ private:
     // CHANGED: Use map to store multiple receive buffers (one per sender node)
     std::unordered_map<uint32_t, std::unique_ptr<oob_recv_buffer<VolatileCascadeStoreWithStringKey, PersistentCascadeStoreWithStringKey, TriggerCascadeNoStoreWithStringKey>>> recv_bufs;
     
-    // Receiver tracking state (moved from static locals to member variables)
-    std::atomic<int> received_count{0};
-    std::chrono::high_resolution_clock::time_point recv_start_time;
-    static constexpr int expected_messages = 2*10000;
-    bool recv_timer_started{false};
+    // CHANGED: Track state per sender node instead of globally
+    struct ReceiverState {
+        std::atomic<int> received_count{0};
+        std::chrono::high_resolution_clock::time_point recv_start_time;
+        bool recv_timer_started{false};
+    };
+    
+    std::unordered_map<uint32_t, ReceiverState> receiver_states; // One per sender node
+    std::mutex receiver_states_mutex; // Protect the map
+    
+    static constexpr int expected_messages = 10000; // Per sender!
     
     // Store client pointer for callbacks (avoid dangling references)
     ServiceClientType* client_ptr = nullptr;
@@ -580,61 +586,84 @@ private:
     // New batch processing method
     void process_received_batch_zero_copy(const std::vector<typename oob_recv_buffer<VolatileCascadeStoreWithStringKey, PersistentCascadeStoreWithStringKey, TriggerCascadeNoStoreWithStringKey>::MessageDescriptor>& messages) {
         try {
-            // Start timer on first batch
-            if (!recv_timer_started) {
-                recv_start_time = std::chrono::high_resolution_clock::now();
-                recv_timer_started = true;
+            if (messages.empty()) return;
+            
+            // Get sender node from first message (all messages in batch are from same sender)
+            uint32_t sender_node = messages[0].buffer_ptr->send_node;
+            
+            // Get or create state for this sender
+            ReceiverState* state = nullptr;
+            {
+                std::lock_guard<std::mutex> lock(receiver_states_mutex);
+                state = &receiver_states[sender_node];
+            }
+            
+            // Start timer on first batch from this sender
+            if (!state->recv_timer_started) {
+                state->recv_start_time = std::chrono::high_resolution_clock::now();
+                state->recv_timer_started = true;
+                std::cout << "[RECV-BATCH] Started timer for sender node " << sender_node << std::endl;
             }
             
             // Process entire batch efficiently
             for (const auto& msg : messages) {
                 if (msg.size >= sizeof(TestData)) {
                     const TestData* test_data = reinterpret_cast<const TestData*>(msg.data_ptr);
-                    // Log with sender node ID from the buffer (0 or 1)
+                    // Log with sender node ID from the buffer
                     TimestampLogger::log(LOG_OOBWRITE_RECV, msg.buffer_ptr->send_node, test_data->sequence_number);
-                    int count = ++received_count;
-                    
-                    // NEW: You can now identify which buffer this came from
-                    // std::cout << "[RECV-BATCH] Message " << test_data->sequence_number 
-                    //           << " from sender node " << msg.buffer_ptr->send_node << std::endl;
+                    state->received_count++;
                 }
             }
             
             total_messages_processed.fetch_add(messages.size());
             total_batches_processed.fetch_add(1);
             
-            // Check completion
-            int count = received_count.load();
+            // Check completion FOR THIS SENDER
+            int count = state->received_count.load();
             if (count >= expected_messages) {
                 auto end_time = std::chrono::high_resolution_clock::now();
                 auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    end_time - recv_start_time);
+                    end_time - state->recv_start_time);
                 
-                uint64_t total_batches = total_batches_processed.load();
-                double avg_batch_size = static_cast<double>(count) / total_batches;
-                
-                std::cout << "[RECV-BATCH] Completed receiving " << count 
+                std::cout << "[RECV-BATCH] Sender node " << sender_node 
+                          << " completed receiving " << count 
                           << " messages in " << duration.count() << " ms" << std::endl;
-                std::cout << "[RECV-BATCH] Total batches: " << total_batches 
-                          << ", Avg batch size: " << avg_batch_size << std::endl;
                 
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
                 
-                std::string recv_filename = "recv_oob_fast_path_sleep" + std::to_string(SLEEP_TIME_US) + "us_timestamp.dat";
+                // Create unique filename per sender
+                std::string recv_filename = "recv_oob_fast_path_sleep" + std::to_string(SLEEP_TIME_US) 
+                                          + "us_from_node" + std::to_string(sender_node) + "_timestamp.dat";
                 TimestampLogger::flush(recv_filename);
                 std::cout << "[RECV-BATCH] Flushed receive timestamps to " << recv_filename << std::endl;
                 
-                // Reset for next run - reset ALL buffers
-                for (auto& [node_id, buf] : recv_bufs) {
-                    if (buf) {
-                        buf->reset_counters();
+                // Reset counter for THIS SENDER ONLY
+                auto it = recv_bufs.find(sender_node);
+                if (it != recv_bufs.end() && it->second) {
+                    it->second->reset_counters();
+                }
+                
+                state->received_count.store(0);
+                state->recv_timer_started = false;
+                std::cout << "[RECV-RESET] Counters reset for sender node " << sender_node << ", ready for next run" << std::endl;
+                
+                // Check if ALL senders are complete
+                bool all_complete = true;
+                {
+                    std::lock_guard<std::mutex> lock(receiver_states_mutex);
+                    for (const auto& [node_id, s] : receiver_states) {
+                        if (s.received_count.load() < expected_messages && s.recv_timer_started) {
+                            all_complete = false;
+                            break;
+                        }
                     }
                 }
-                received_count.store(0);
-                total_messages_processed.store(0);
-                total_batches_processed.store(0);
-                recv_timer_started = false;
-                std::cout << "[RECV-RESET] Counters reset for all buffers, ready for next run" << std::endl;
+                
+                if (all_complete) {
+                    std::cout << "[RECV-COMPLETE] All senders completed!" << std::endl;
+                    total_messages_processed.store(0);
+                    total_batches_processed.store(0);
+                }
             }
         } catch (const std::exception& e) {
             std::cout << "[ERROR] Exception in process_received_batch_zero_copy: " << e.what() << std::endl;

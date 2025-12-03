@@ -210,7 +210,7 @@ private:
  
   // Counters that can be reset between runs
   std::atomic<uint64_t> total_chunks_received{0};
-  const uint64_t expected_total_chunks = 2*10000;
+  const uint64_t expected_total_chunks = 10000;  // FIXED: Per sender, not 2*10000
 
   // Age tracking for load balancing (atomic for thread-safe access)
   std::atomic<std::chrono::steady_clock::time_point> oldest_message_arrival_time{std::chrono::steady_clock::now()};

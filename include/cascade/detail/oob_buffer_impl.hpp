@@ -772,8 +772,9 @@ inline bool oob_recv_buffer<CascadeTypes...>::process_once() {
     
     // Check completion
     if (this->total_chunks_received.load() >= expected_total_chunks) {
-        std::cout << "[RECV_COMPLETE] Buffer received all " << this->total_chunks_received.load() << " chunks" << std::endl;
-        TimestampLogger::flush("recv_oob_fast_path_timestamp.dat");
+        std::cout << "[RECV_COMPLETE] Buffer from sender node " << this->send_node 
+                  << " received all " << this->total_chunks_received.load() << " chunks" << std::endl;
+        // Don't flush here - let the UDL callback handle per-sender completion
     }
     
     return true; // Processed data

@@ -635,11 +635,14 @@ oob_recv_buffer<CascadeTypes...>::create(void* buff,
 
 template<typename... CascadeTypes>
 inline void oob_recv_buffer<CascadeTypes...>::setup_connection(uint64_t head_addr,  std::uint64_t head_r_key) {
-    std::cout << "[RECV_SETUP] Storing sender's head address: 0x" << std::hex << head_addr 
+    std::cout << "[RECV_SETUP] Node " << this->service_client.get_my_id() 
+              << " storing sender's head address from node " << this->send_node 
+              << ": 0x" << std::hex << head_addr 
               << ", rkey: 0x" << head_r_key << std::dec << std::endl;
     this->head_addr = head_addr;
     this->head_r_key = head_r_key;
-    std::cout << "[RECV_SETUP] Confirmed this->head_addr = 0x" << std::hex << this->head_addr << std::dec << std::endl;
+    std::cout << "[RECV_SETUP] Confirmed this->head_addr = 0x" << std::hex << this->head_addr 
+              << ", will send head updates TO node " << this->send_node << std::dec << std::endl;
 }
 template<typename... CascadeTypes>
 inline oob_recv_buffer<CascadeTypes...>::~oob_recv_buffer() {

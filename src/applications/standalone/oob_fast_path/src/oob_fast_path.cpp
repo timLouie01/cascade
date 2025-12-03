@@ -182,7 +182,8 @@ public:
                 }
             }
             
-            std::cout << "[PREPARE_RECV] Creating OOB recv buffer for node " << send_node 
+            std::cout << "[PREPARE_RECV] Node " << client.get_my_id() 
+                      << " creating OOB recv buffer FOR SENDER NODE " << send_node 
                       << " with sleep time " << SLEEP_TIME_US << "us (creation pinned to core 11 for NUMA first-touch)" << std::endl;
             
             try {
@@ -336,9 +337,9 @@ public:
                 return;
             }
             
-            std::cout << "[START_RECV] Received head info from node " << payload.dest_node << std::endl;
-            std::cout << "[START_RECV] Head: addr=0x" << std::hex << payload.head_info.head 
-                      << ", rkey=0x" << payload.head_info.head_rkey << std::dec << std::endl;
+            std::cout << "[START_RECV] Node " << client.get_my_id() 
+                      << " received head info from SENDER node " << payload.dest_node << std::endl;
+            std::cout << "[START_RECV] This buffer will send head updates BACK TO node " << payload.dest_node << std::endl;
             
             try {
                 // Store client pointer for use in callbacks
